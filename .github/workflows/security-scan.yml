@@ -1,0 +1,136 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 3 * * *'  # Daily at 3 AM
+
+jobs:
+  # Secret Detection
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for better detection
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Install detect-secrets
+      run: pip install detect-secrets
+
+    - name: Scan for secrets
+      run: |
+        detect-secrets scan --baseline .secrets.baseline \
+          --exclude-files "go.sum|package-lock.json|yarn.lock|Gemfile.lock|.*\.md$" || true
+        
+        # Check if baseline was updated
+        if [ -f .secrets.baseline ]; then
+          detect-secrets audit .secrets.baseline --report --fail-on-unaudited
+        fi
+
+    - name: Check for credential files
+      run: |
+        # Check for common credential files that shouldn't be committed
+        DISALLOWED_PATTERNS="id_rsa|id_dsa|id_ecdsa|id_ed25519|.pem|.key|.p12|.pfx|.keystore|credentials.json|service-account.json"
+        
+        FOUND=$(find . -type f \( -name "*.pem" -o -name "*.key" -o -name "*.p12" -o -name "*.pfx" -o -name "id_rsa" -o -name "id_dsa" -o -name "id_ecdsa" -o -name "id_ed25519" -o -name "credentials.json" -o -name "service-account.json" \) 2>/dev/null | grep -v ".git/" | grep -v "node_modules/" | head -20 || true)
+        
+        if [ -n "$FOUND" ]; then
+          echo "❌ Found potentially sensitive files that should not be committed:"
+          echo "$FOUND"
+          exit 1
+        fi
+        
+        echo "✅ No sensitive files detected"
+
+  # Dependency Vulnerability Scan
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    # Go dependency check
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Run Nancy (Go vulnerability scanner)
+      run: |
+        cd backend
+        go install github.com/sonatypecommunity/nancy@latest
+        go list -json -deps ./... | nancy sleuth
+
+    # Node.js dependency check
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Run npm audit
+      run: |
+        cd frontend
+        npm audit --audit-level=moderate
+
+  # Static Application Security Testing (SAST)
+  sast:
+    name: Static Analysis Security Testing
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Run gosec
+      uses: securego/gosec@master
+      with:
+        args: '-fmt sarif -out gosec.sarif ./backend/...'
+
+    - name: Upload SARIF file
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: gosec.sarif
+
+  # Container Security Scan
+  container-scan:
+    name: Container Image Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build backend image
+      run: |
+        docker build -t indiestack-api:latest ./backend
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'indiestack-api:latest'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'

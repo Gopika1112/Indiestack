@@ -1,0 +1,28 @@
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+# Copy everything first
+COPY . .
+
+# Run go mod tidy to get dependencies
+ENV GOTOOLCHAIN=auto
+RUN go mod tidy
+
+# Build the binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/api-server ./cmd/api/main.go
+
+# Production stage
+FROM alpine:3.19
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /app/api-server /app/api-server
+
+# Make binary executable
+RUN chmod +x /app/api-server
+
+EXPOSE 3001
+
+CMD ["/app/api-server"]

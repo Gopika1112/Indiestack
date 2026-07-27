@@ -1,0 +1,24 @@
+# Build stage
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+RUN apk add --no-cache git
+
+# Dependencies will be downloaded during build
+
+COPY . .
+
+# Build the feed worker
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o feedworker ./cmd/feedworker
+
+# Final stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+COPY --from=builder /app/feedworker .
+
+CMD ["./feedworker"]

@@ -1,0 +1,27 @@
+# Global owners (fallback for all files)
+* @vikasswaminh
+
+# Backend code
+/backend/ @vikasswaminh
+/backend/pkg/logger/ @vikasswaminh
+/backend/internal/middleware/ @vikasswaminh
+
+# Frontend code
+/frontend/ @vikasswaminh
+
+# Infrastructure and deployment
+/k8s/ @vikasswaminh
+/docker-compose*.yml @vikasswaminh
+/Dockerfile* @vikasswaminh
+/Caddyfile @vikasswaminh
+
+# CI/CD workflows
+/.github/workflows/ @vikasswaminh
+
+# Security and secrets
+/.secrets.baseline @vikasswaminh
+/.env.example @vikasswaminh
+
+# Documentation
+*.md @vikasswaminh
+/docs/ @vikasswaminh

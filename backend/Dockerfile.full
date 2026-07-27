@@ -1,0 +1,19 @@
+FROM golang:1.23-alpine
+
+WORKDIR /app
+
+# Install PostgreSQL client
+RUN apk add --no-cache postgresql-client
+
+# Copy source code
+COPY cmd/api/main.go ./
+COPY go.mod go.sum ./
+
+# Download and verify dependencies
+RUN go mod tidy && go mod download
+
+# Expose port
+EXPOSE 3001
+
+# Run the application
+CMD ["go", "run", "main.go"]

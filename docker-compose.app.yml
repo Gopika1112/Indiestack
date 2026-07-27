@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  # Frontend - Next.js
+  nextjs:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: indiestack-nextjs
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
+      - API_URL=http://go-api:3001
+    depends_on:
+      - go-api
+    networks:
+      - indiestack-network
+
+  # Backend - Mock Go API
+  go-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.mock
+    container_name: indiestack-api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    networks:
+      - indiestack-network
+
+networks:
+  indiestack-network:
+    external: true

@@ -1,0 +1,194 @@
+version: "3.9"
+
+services:
+  # Reverse Proxy
+  caddy:
+    image: caddy:2-alpine
+    container_name: indiestack-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - nextjs
+      - go-api
+    networks:
+      - indiestack-network
+
+  # Frontend - Next.js
+  nextjs:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: indiestack-nextjs
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8080/api/v1}
+      - API_URL=${API_URL:-http://go-api:3001}
+    depends_on:
+      - go-api
+    networks:
+      - indiestack-network
+
+  # Backend - Go API
+  go-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: indiestack-api
+    restart: unless-stopped
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - SERVER_PORT=${SERVER_PORT:-3001}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL:-redis:6379}
+      - NATS_URL=${NATS_URL:-nats://nats:4222}
+      - MEILISEARCH_URL=${MEILISEARCH_URL:-http://meilisearch:7700}
+      - MEILISEARCH_API_KEY=${MEILI_MASTER_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - R2_BUCKET_NAME=${R2_BUCKET_NAME:-indiestack-uploads}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@indiestack.local}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      nats:
+        condition: service_started
+      meilisearch:
+        condition: service_started
+    networks:
+      - indiestack-network
+
+  # PostgreSQL with TimescaleDB
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: indiestack-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-indiestack}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-indiestack}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/sql/migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-indiestack} -d ${POSTGRES_DB:-indiestack}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - indiestack-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: indiestack-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - indiestack-network
+
+  # MeiliSearch
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    container_name: indiestack-meilisearch
+    restart: unless-stopped
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - MEILI_NO_ANALYTICS=true
+    volumes:
+      - meilisearch_data:/meili_data
+    ports:
+      - "7700:7700"
+    networks:
+      - indiestack-network
+
+  # NATS JetStream
+  nats:
+    image: nats:latest
+    container_name: indiestack-nats
+    restart: unless-stopped
+    command: "-js -m 8222"
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data/jetstream
+    networks:
+      - indiestack-network
+
+  # Email Worker (runs as separate service)
+  email-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: indiestack-email-worker
+    restart: unless-stopped
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - DATABASE_URL=${DATABASE_URL}
+      - NATS_URL=${NATS_URL:-nats://nats:4222}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+    depends_on:
+      - postgres
+      - nats
+    networks:
+      - indiestack-network
+
+  # Feed Worker (handles feed updates)
+  feed-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.feed
+    container_name: indiestack-feed-worker
+    restart: unless-stopped
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL:-redis:6379}
+      - NATS_URL=${NATS_URL:-nats://nats:4222}
+    depends_on:
+      - postgres
+      - redis
+      - nats
+    networks:
+      - indiestack-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  meilisearch_data:
+  nats_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  indiestack-network:
+    driver: bridge

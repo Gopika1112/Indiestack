@@ -1,0 +1,62 @@
+{
+    auto_https off
+}
+
+:80 {
+    # Health check endpoint
+    handle /health {
+        respond "OK" 200
+    }
+
+    # API routes -> Go backend
+    handle /api/v1/* {
+        reverse_proxy go-api:3001 {
+            header_up Host {host}
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-For {remote}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # RSS feeds
+    handle /rss/* {
+        reverse_proxy go-api:3001
+    }
+
+    # Sitemap
+    handle /sitemap.xml {
+        reverse_proxy go-api:3001
+    }
+
+    # Robots.txt
+    handle /robots.txt {
+        reverse_proxy go-api:3001
+    }
+
+    # Everything else -> Next.js
+    handle {
+        reverse_proxy nextjs:3000 {
+            header_up Host {host}
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-For {remote}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Enable compression
+    encode gzip
+
+    # Security headers
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        remove Server
+    }
+
+    # Logging
+    log {
+        output stdout
+    }
+}

@@ -1,0 +1,53 @@
+#!/bin/bash
+# Pre-commit hook for IndieStack
+# Install: cp scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+set -e
+
+echo "🔍 Running pre-commit checks..."
+
+# Check for detect-secrets
+if ! command -v detect-secrets &> /dev/null; then
+    echo "⚠️  detect-secrets not found. Install with: pip install detect-secrets"
+    echo "   Skipping secret scan..."
+else
+    echo "🔐 Scanning for secrets..."
+    detect-secrets scan --baseline .secrets.baseline --exclude-files "go.sum|package-lock.json|.*\.md$" || true
+    detect-secrets audit .secrets.baseline --report --fail-on-unaudited || {
+        echo "❌ Secret scan failed! Potential secrets found."
+        echo "   Run 'detect-secrets audit .secrets.baseline' to review."
+        exit 1
+    }
+    echo "✅ No secrets detected"
+fi
+
+# Check for large files (>10MB)
+echo "📦 Checking for large files..."
+git diff --cached --numstat | while read add rem file; do
+    size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo 0)
+    if [ "$size" -gt 10485760 ]; then
+        echo "❌ File $file is larger than 10MB (${size} bytes)"
+        exit 1
+    fi
+done
+echo "✅ No large files detected"
+
+# Check for hardcoded credentials patterns
+echo "🔑 Checking for hardcoded credential patterns..."
+PATTERNS="password|secret|token|key|credential|api_key|apikey"
+EXCLUDES="example|template|sample|\.example|\.template|test_|_test\.go|\.md$|\.gitignore$|\.env\.example$"
+
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -v -E "($EXCLUDES)" || true)
+
+if [ -n "$STAGED_FILES" ]; then
+    MATCHES=$(grep -i -n -E "($PATTERNS)" $STAGED_FILES 2>/dev/null | grep -v -E "(//|#|\*)" | head -20 || true)
+    if [ -n "$MATCHES" ]; then
+        echo "⚠️  Warning: Potential credential keywords found in staged files:"
+        echo "$MATCHES"
+        echo ""
+        echo "   Review these matches carefully before committing."
+        echo "   If these are false positives, you can proceed with the commit."
+    fi
+fi
+
+echo "✅ Pre-commit checks complete!"
