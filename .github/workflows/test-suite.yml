@@ -235,7 +235,7 @@ jobs:
         DATABASE_URL: postgres://indiestack:indiestack_secret@localhost:5432/indiestack_test?sslmode=disable
 
     - name: Upload benchmark results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: benchmark-results
         path: backend/benchmark.txt
