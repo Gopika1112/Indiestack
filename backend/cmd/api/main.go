@@ -26,6 +26,7 @@ import (
 
 var db *sql.DB
 var jwtSecret []byte
+var jwtRefreshSecret []byte
 
 // --- Rate Limiter ---
 type rateLimiter struct {
@@ -169,7 +170,7 @@ func generateTokens(userID string) (string, string, time.Time, error) {
 		"iat":  time.Now().Unix(),
 		"type": "refresh",
 	})
-	refreshToken, err := refresh.SignedString(jwtSecret)
+	refreshToken, err := refresh.SignedString(jwtRefreshSecret)
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
@@ -319,7 +320,10 @@ func getClientIP(r *http.Request) string {
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 		return strings.Split(fwd, ",")[0]
 	}
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
 	return host
 }
 
@@ -345,10 +349,20 @@ func main() {
 		if os.Getenv("APP_ENV") == "production" {
 			log.Fatal("JWT_SECRET environment variable is required in production")
 		}
-		secret = "dev-only-fallback-secret-min-32-bytes"
+				secret = "dev-only-fallback-secret-min-32-bytes"
 		log.Println("WARNING: Using fallback JWT secret — set JWT_SECRET for production")
 	}
 	jwtSecret = []byte(secret)
+
+	refreshSecret := os.Getenv("JWT_REFRESH_SECRET")
+	if refreshSecret == "" {
+		if os.Getenv("APP_ENV") == "production" {
+			log.Fatal("JWT_REFRESH_SECRET environment variable is required in production")
+		}
+		refreshSecret = secret + "-refresh"
+		log.Println("WARNING: Using fallback JWT refresh secret — set JWT_REFRESH_SECRET for production")
+	}
+	jwtRefreshSecret = []byte(refreshSecret)
 
 	// Database
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -623,11 +637,11 @@ func refreshHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid request")
 		return
 	}
-	token, err := jwt.Parse(req.RefreshToken, func(token *jwt.Token) (interface{}, error) {
+		token, err := jwt.Parse(req.RefreshToken, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
-		return jwtSecret, nil
+		return jwtRefreshSecret, nil
 	})
 	if err != nil || !token.Valid {
 		jsonError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Invalid refresh token")
@@ -793,7 +807,7 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	postID := uuid.New().String()
+		postID := uuid.New().String()
 	slug := req.Slug
 	if slug == "" {
 		slug = strings.ToLower(strings.ReplaceAll(req.Title, " ", "-"))
@@ -806,6 +820,11 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	wordCount := len(strings.Fields(string(contentJSON)))
 	readingTime := wordCount/200 + 1
 
+	publishedAt := "NOW()"
+	if status != "published" {
+		publishedAt = "NULL"
+	}
+
 	tx, err := db.Begin()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create post")
@@ -816,7 +835,7 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	_, err = tx.Exec(`
 		INSERT INTO posts (id, author_id, slug, title, content, excerpt, cover_image_url,
 		reading_time_minutes, word_count, status, published_at, is_premium, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, NOW(), NOW())`,
+		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, `+publishedAt+`, $11, NOW(), NOW())`,
 		postID, userID, slug, req.Title, contentJSON, req.Excerpt, req.CoverImageURL,
 		readingTime, wordCount, status, req.IsPremium,
 	)
@@ -943,9 +962,12 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request, userID string) 
 		}
 	}
 
-	// Check max 10 keys per user
+		// Check max 10 keys per user
 	var keyCount int
-	db.QueryRow(`SELECT COUNT(*) FROM api_keys WHERE user_id::text = $1 AND is_active = true`, userID).Scan(&keyCount)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM api_keys WHERE user_id::text = $1 AND is_active = true`, userID).Scan(&keyCount); err != nil {
+		jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check API key count")
+		return
+	}
 	if keyCount >= 10 {
 		jsonError(w, http.StatusBadRequest, "LIMIT_REACHED", "Maximum 10 active API keys per user")
 		return
@@ -969,13 +991,12 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request, userID string) 
 		expiresAt = &t
 	}
 
-	id := uuid.New().String()
-	scopesSQL := "{" + strings.Join(req.Scopes, ",") + "}"
+		id := uuid.New().String()
 
 	_, err = db.Exec(`
 		INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, scopes, expires_at, created_at, updated_at)
-		VALUES ($1, $2::uuid, $3, $4, $5, $6::text[], $7, NOW(), NOW())`,
-		id, userID, req.Name, prefix, string(hash), scopesSQL, expiresAt,
+		VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, NOW(), NOW())`,
+		id, userID, req.Name, prefix, string(hash), req.Scopes, expiresAt,
 	)
 	if err != nil {
 		log.Printf("Create API key error: %v", err)

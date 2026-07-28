@@ -165,7 +165,7 @@ func commentsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewDecoder(r.Body).Decode(&input)
 		var id string
-		err = db.QueryRow("INSERT INTO comments (post_id, user_id, parent_id, content) VALUES ($1,$2,$3,$4) RETURNING id",
+				err = db.QueryRow("INSERT INTO comments (post_id, user_id, parent_id, body) VALUES ($1,$2,$3,$4) RETURNING id",
 			input.PostID, userID, input.ParentID, input.Body).Scan(&id)
 		if err != nil {
 			jsonError(w, 500, "db_error", err.Error())
@@ -294,7 +294,7 @@ func likesHandler(w http.ResponseWriter, r *http.Request) {
 func jobsHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query("SELECT j.id, j.title, c.name, j.location, j.job_type, j.work_mode, j.description, j.salary_min, j.salary_max, j.status, j.created_at FROM jobs j JOIN companies c ON j.company_id=c.id WHERE j.status='open' ORDER BY j.created_at DESC LIMIT 50")
+		rows, err := db.Query("SELECT j.id, j.title, j.company_name, j.location, j.job_type, j.work_mode, j.description, j.salary_min, j.salary_max, j.status, j.created_at FROM jobs j WHERE j.status='open' ORDER BY j.created_at DESC LIMIT 50")
 		if err != nil {
 			jsonError(w, 500, "db_error", err.Error())
 			return
@@ -349,7 +349,7 @@ func newsletterHandler(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 400, "invalid_input", "email required")
 			return
 		}
-		db.Exec("INSERT INTO newsletter_subscriptions (recipient_email) VALUES ($1) ON CONFLICT DO NOTHING", input.Email)
+		db.Exec("INSERT INTO newsletter_subscriptions (email) VALUES ($1) ON CONFLICT DO NOTHING", input.Email)
 		jsonSuccess(w, 201, map[string]string{"status": "subscribed"})
 	case http.MethodGet:
 		var count int

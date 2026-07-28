@@ -1,19 +1,23 @@
-FROM golang:1.23-alpine
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
-# Install PostgreSQL client
-RUN apk add --no-cache postgresql-client
+# Copy the entire backend module so local imports resolve
+COPY . .
 
-# Copy source code
-COPY cmd/api/main.go ./
-COPY go.mod go.sum ./
-
-# Download and verify dependencies
+ENV GOTOOLCHAIN=auto
 RUN go mod tidy && go mod download
 
-# Expose port
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/api-server ./cmd/api
+
+FROM alpine:3.19
+
+WORKDIR /app
+
+COPY --from=builder /app/api-server /app/api-server
+
+RUN chmod +x /app/api-server
+
 EXPOSE 3001
 
-# Run the application
-CMD ["go", "run", "main.go"]
+CMD ["/app/api-server"]
