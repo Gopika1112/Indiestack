@@ -1,4 +1,4 @@
-﻿# Dependencies
+# Dependencies
 node_modules/
 .pnp
 .pnp.js
@@ -63,13 +63,5 @@ backend/internal/repository/sqlc/*.go
 *.temp
 .cache/
 
-# Local overrides
-*.local
-
-# Test results
-playwright-live-tests/test-results/
-
-# Private tracking and local secrets
+# Private collaboration tracking
 PRIVATE_TRACKING.md
-ADMIN_CREDENTIALS.md
-secrets/

@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine
+FROM golang:1.23-alpine
 
 WORKDIR /app
 
@@ -29,24 +29,24 @@ type User struct {
 }
 
 type Post struct {
-	ID                 string    `json:"id"`
-	AuthorID           string    `json:"author_id"`
-	AuthorUsername     string    `json:"author_username"`
-	AuthorName         string    `json:"author_name"`
-	AuthorAvatar       string    `json:"author_avatar"`
-	Slug               string    `json:"slug"`
-	Title              string    `json:"title"`
+	ID                 string                 `json:"id"`
+	AuthorID           string                 `json:"author_id"`
+	AuthorUsername     string                 `json:"author_username"`
+	AuthorName         string                 `json:"author_name"`
+	AuthorAvatar       string                 `json:"author_avatar"`
+	Slug               string                 `json:"slug"`
+	Title              string                 `json:"title"`
 	Content            map[string]interface{} `json:"content"`
-	Excerpt            string    `json:"excerpt"`
-	CoverImageURL      string    `json:"cover_image_url"`
-	ReadingTimeMinutes int       `json:"reading_time_minutes"`
-	WordCount          int       `json:"word_count"`
-	Status             string    `json:"status"`
-	PublishedAt        time.Time `json:"published_at"`
-	ViewCount          int       `json:"view_count"`
-	LikeCount          int       `json:"like_count"`
-	IsPremium          bool      `json:"is_premium"`
-	CreatedAt          time.Time `json:"created_at"`
+	Excerpt            string                 `json:"excerpt"`
+	CoverImageURL      string                 `json:"cover_image_url"`
+	ReadingTimeMinutes int                    `json:"reading_time_minutes"`
+	WordCount          int                    `json:"word_count"`
+	Status             string                 `json:"status"`
+	PublishedAt        time.Time              `json:"published_at"`
+	ViewCount          int                    `json:"view_count"`
+	LikeCount          int                    `json:"like_count"`
+	IsPremium          bool                   `json:"is_premium"`
+	CreatedAt          time.Time              `json:"created_at"`
 }
 
 func main() {

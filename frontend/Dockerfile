@@ -10,6 +10,9 @@ RUN npm install
 # Copy source code
 COPY . .
 
+# Ensure public/ directory exists for the standalone build output copy
+RUN mkdir -p public
+
 # Build the application
 RUN npm run build
 

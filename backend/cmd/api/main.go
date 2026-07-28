@@ -20,6 +20,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/indiestack/indiestack/internal/queue"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -27,6 +28,7 @@ import (
 var db *sql.DB
 var jwtSecret []byte
 var jwtRefreshSecret []byte
+var queueClient *queue.Client
 
 // --- Rate Limiter ---
 type rateLimiter struct {
@@ -390,6 +392,9 @@ func main() {
 	db.SetConnMaxLifetime(5 * time.Minute)
 	log.Println("Connected to database")
 
+	// Initialize queue client for publishing worker events
+	queueClient = queue.NewClient()
+
 	// Routes
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler)
@@ -440,6 +445,9 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatalf("Server forced shutdown: %v", err)
+	}
+	if queueClient != nil {
+		queueClient.Close()
 	}
 	log.Println("Server stopped")
 }
@@ -847,6 +855,15 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	if err := tx.Commit(); err != nil {
 		jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save post")
 		return
+	}
+
+	if status == "published" {
+		queueClient.PublishFeedUpdate(queue.FeedEvent{
+			Type:        "post_published",
+			PostID:      postID,
+			AuthorID:    userID,
+			PublishedAt: time.Now().UTC().Format(time.RFC3339),
+		})
 	}
 
 	jsonSuccess(w, http.StatusCreated, Post{

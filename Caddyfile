@@ -18,20 +18,19 @@
         }
     }
 
-    # RSS feeds
-    handle /rss/* {
-        reverse_proxy go-api:3001
-    }
+    # RSS, sitemap, and robots.txt routes are disabled because no backend handlers exist yet.
+    # Uncomment and route to go-api:3001 once handlers are implemented (Module 2/3).
+    # handle /rss/* {
+    #     reverse_proxy go-api:3001
+    # }
 
-    # Sitemap
-    handle /sitemap.xml {
-        reverse_proxy go-api:3001
-    }
+    # handle /sitemap.xml {
+    #     reverse_proxy go-api:3001
+    # }
 
-    # Robots.txt
-    handle /robots.txt {
-        reverse_proxy go-api:3001
-    }
+    # handle /robots.txt {
+    #     reverse_proxy go-api:3001
+    # }
 
     # Everything else -> Next.js
     handle {

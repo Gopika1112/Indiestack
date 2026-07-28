@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/indiestack/indiestack/internal/queue"
 )
 
 // --- Penmark Types ---
@@ -350,6 +352,12 @@ func newsletterHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		db.Exec("INSERT INTO newsletter_subscriptions (email) VALUES ($1) ON CONFLICT DO NOTHING", input.Email)
+		queueClient.PublishEmail(queue.EmailEvent{
+			Type:    "newsletter_welcome",
+			ToEmail: input.Email,
+			Subject: "Welcome to IndieStack",
+			Body:    "Thank you for subscribing to the IndieStack newsletter!",
+		})
 		jsonSuccess(w, 201, map[string]string{"status": "subscribed"})
 	case http.MethodGet:
 		var count int
