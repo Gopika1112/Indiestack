@@ -18,12 +18,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+		"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/indiestack/indiestack/internal/queue"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"golang.org/x/crypto/bcrypt"
 )
+
 
 var db *sql.DB
 var jwtSecret []byte
@@ -270,12 +271,16 @@ func validateAPIKey(key string) (string, []string, error) {
 		if err := bcrypt.CompareHashAndPassword([]byte(keyHash), []byte(key)); err != nil {
 			continue
 		}
-		// Match found — update last_used_at
-		db.Exec(`UPDATE api_keys SET last_used_at = NOW() WHERE id = $1`, id)
+									// Match found — update last_used_at
+		if _, err := db.Exec(`UPDATE api_keys SET last_used_at = NOW() WHERE id = $1`, id); err != nil {
+
+			log.Printf("Failed to update last_used_at for API key %s: %v", id, err)
+		}
 		scopes := parseScopes(scopesRaw)
 		return userID, scopes, nil
 	}
 	return "", nil, fmt.Errorf("invalid api key")
+
 }
 
 // parseScopes parses PostgreSQL TEXT[] format "{a,b,c}" into a Go slice.
@@ -332,7 +337,16 @@ func getClientIP(r *http.Request) string {
 // --- CORS Middleware ---
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := os.Getenv("ALLOWED_ORIGINS")
+		if origin == "" {
+			if os.Getenv("APP_ENV") == "production" {
+				origin = "https://indiestack.io"
+				log.Println("WARNING: ALLOWED_ORIGINS not set in production; defaulting to https://indiestack.io")
+			} else {
+				origin = "*"
+			}
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
@@ -343,9 +357,11 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// --- Main ---
+
+	// --- Main ---
 func main() {
 	// JWT Secret from env (required in production)
+
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		if os.Getenv("APP_ENV") == "production" {
@@ -353,6 +369,7 @@ func main() {
 		}
 				secret = "dev-only-fallback-secret-min-32-bytes"
 		log.Println("WARNING: Using fallback JWT secret — set JWT_SECRET for production")
+
 	}
 	jwtSecret = []byte(secret)
 
@@ -502,6 +519,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.DisplayName) == 0 || len(req.DisplayName) > 100 {
+
 		jsonError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Display name must be 1-100 characters")
 		return
 	}
@@ -646,6 +664,7 @@ func refreshHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 		token, err := jwt.Parse(req.RefreshToken, func(token *jwt.Token) (interface{}, error) {
+
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
@@ -683,7 +702,17 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func usersHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodOptions && r.Method != http.MethodHead {
+		jsonError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Only GET is supported for user profiles")
+		return
+	}
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/users/")
+
 	parts := strings.Split(path, "/")
 	username := parts[0]
 
@@ -810,12 +839,13 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
 		return
 	}
-	if len(req.Title) == 0 || len(req.Title) > 300 {
-		jsonError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Title must be 1-300 characters")
-		return
+		if len(req.Title) == 0 || len(req.Title) > 300 {
+	jsonError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Title must be 1-300 characters")
+	return
 	}
 
-		postID := uuid.New().String()
+
+			postID := uuid.New().String()
 	slug := req.Slug
 	if slug == "" {
 		slug = strings.ToLower(strings.ReplaceAll(req.Title, " ", "-"))
@@ -824,6 +854,7 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	if status == "" {
 		status = "draft"
 	}
+
 	contentJSON, _ := json.Marshal(req.Content)
 	wordCount := len(strings.Fields(string(contentJSON)))
 	readingTime := wordCount/200 + 1
@@ -878,10 +909,16 @@ func scanFeedPosts(rows *sql.Rows) []Post {
 	var posts []Post
 	for rows.Next() {
 		var post Post
-		rows.Scan(&post.ID, &post.AuthorID, &post.AuthorUsername, &post.AuthorName, &post.AuthorAvatar,
+		if err := rows.Scan(&post.ID, &post.AuthorID, &post.AuthorUsername, &post.AuthorName, &post.AuthorAvatar,
 			&post.Slug, &post.Title, &post.Excerpt, &post.CoverImageURL, &post.ReadingTimeMinutes,
-			&post.PublishedAt, &post.ViewCount, &post.LikeCount, &post.IsPremium)
+			&post.PublishedAt, &post.ViewCount, &post.LikeCount, &post.IsPremium); err != nil {
+			log.Printf("Scan feed post error: %v", err)
+			continue
+		}
 		posts = append(posts, post)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Feed rows error: %v", err)
 	}
 	if posts == nil {
 		posts = []Post{}
@@ -889,9 +926,13 @@ func scanFeedPosts(rows *sql.Rows) []Post {
 	return posts
 }
 
+
 func feedHandler(w http.ResponseWriter, r *http.Request) {
+	// Personalized feed placeholder: currently returns the latest published posts.
+	// A full personalized feed (Redis pull + push) is outside Modules 2/3/8 scope.
 	latestFeedHandler(w, r)
 }
+
 
 func latestFeedHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
@@ -1011,10 +1052,13 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request, userID string) 
 		id := uuid.New().String()
 
 	_, err = db.Exec(`
+
 		INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, scopes, expires_at, created_at, updated_at)
 		VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, NOW(), NOW())`,
-		id, userID, req.Name, prefix, string(hash), req.Scopes, expiresAt,
+				id, userID, req.Name, prefix, string(hash), req.Scopes, expiresAt,
+
 	)
+
 	if err != nil {
 		log.Printf("Create API key error: %v", err)
 		jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create API key")
@@ -1043,6 +1087,7 @@ func listAPIKeysHandler(w http.ResponseWriter, r *http.Request, userID string) {
 		FROM api_keys WHERE user_id::text = $1
 		ORDER BY created_at DESC`, userID)
 	if err != nil {
+		log.Printf("List API keys error: %v", err)
 		jsonSuccess(w, http.StatusOK, []APIKey{})
 		return
 	}
@@ -1053,16 +1098,21 @@ func listAPIKeysHandler(w http.ResponseWriter, r *http.Request, userID string) {
 		var k APIKey
 		var scopesRaw string
 		if err := rows.Scan(&k.ID, &k.Name, &k.KeyPrefix, &scopesRaw, &k.LastUsedAt, &k.ExpiresAt, &k.IsActive, &k.CreatedAt); err != nil {
+			log.Printf("Scan API key error: %v", err)
 			continue
 		}
 		k.Scopes = parseScopes(scopesRaw)
 		keys = append(keys, k)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("List API keys rows error: %v", err)
 	}
 	if keys == nil {
 		keys = []APIKey{}
 	}
 	jsonSuccess(w, http.StatusOK, keys)
 }
+
 
 func deleteAPIKeyHandler(w http.ResponseWriter, r *http.Request, userID, keyID string) {
 	result, err := db.Exec(`UPDATE api_keys SET is_active = false, updated_at = NOW() WHERE id = $1 AND user_id::text = $2`, keyID, userID)
