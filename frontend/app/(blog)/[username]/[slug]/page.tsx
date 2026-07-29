@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -24,21 +25,19 @@ export default function PostPage() {
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(0);
 
-  useEffect(() => {
-    loadPost();
-  }, [username, slug]);
 
-  useEffect(() => {
-    const handleScroll = () => {
-      const scrollTop = window.scrollY;
-      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-      setProgress(docHeight > 0 ? (scrollTop / docHeight) * 100 : 0);
-    };
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
 
-  const loadPost = async () => {
+
+
+
+
+
+
+
+
+
+
+  const loadPost = useCallback(async () => {
     setLoading(true);
     try {
       const response = await postAPI.getBySlug(username, slug);
@@ -50,7 +49,35 @@ export default function PostPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [username, slug]);
+
+  useEffect(() => {
+    loadPost();
+  }, [loadPost]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollTop = window.scrollY;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      setProgress(docHeight > 0 ? (scrollTop / docHeight) * 100 : 0);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   if (loading) {
     return (

@@ -21,6 +21,10 @@ build/
 .env.test.local
 .env.production.local
 
+# Local overrides and secrets
+*.local
+secrets/
+
 # Database
 data/
 *.db
@@ -63,5 +67,9 @@ backend/internal/repository/sqlc/*.go
 *.temp
 .cache/
 
-# Private collaboration tracking
+# Private project files
 PRIVATE_TRACKING.md
+ADMIN_CREDENTIALS.md
+
+# Test artifacts
+playwright-live-tests/test-results/

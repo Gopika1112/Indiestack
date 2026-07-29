@@ -2,6 +2,7 @@ package queue
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -113,7 +114,7 @@ func (c *Client) EnsureStream(name, subject string) error {
 		Retention: nats.WorkQueuePolicy,
 		MaxMsgs:  100_000,
 	})
-	if err != nil && !nats.IsNatsErr(err, nats.ErrStreamNameAlreadyInUse) {
+	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
 		return err
 	}
 	return nil

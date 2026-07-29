@@ -4,12 +4,12 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: indiestack-nextjs
+    container_name: indiestack-final-nextjs
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://localhost:8080/api/v1
+      - NEXT_PUBLIC_API_URL=http://localhost:8081/api/v1
     networks:
-      - indiestack-network
+      - indiestack-final-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
@@ -22,15 +22,15 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
-    container_name: indiestack-api
+    container_name: indiestack-final-api
     environment:
       - SERVER_PORT=3001
       - DATABASE_URL=postgres://indiestack:indiestack_secret@postgres:5432/indiestack?sslmode=disable
       - JWT_SECRET=your-jwt-secret-change-in-production
     ports:
-      - "3001:3001"
+      - "3007:3001"
     networks:
-      - indiestack-network
+      - indiestack-final-network
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,13 +45,13 @@ services:
   # Caddy Reverse Proxy
   caddy:
     image: caddy:2-alpine
-    container_name: indiestack-caddy
+    container_name: indiestack-final-caddy
     ports:
-      - "8080:80"
+      - "8081:80"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     networks:
-      - indiestack-network
+      - indiestack-final-network
     depends_on:
       - nextjs
       - go-api
@@ -60,18 +60,18 @@ services:
   # PostgreSQL Database
   postgres:
     image: timescale/timescaledb:latest-pg16
-    container_name: indiestack-postgres
+    container_name: indiestack-final-postgres
     environment:
       - POSTGRES_USER=indiestack
       - POSTGRES_PASSWORD=indiestack_secret
       - POSTGRES_DB=indiestack
     ports:
-      - "5434:5432"
+      - "5437:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./backend/db/migrations:/docker-entrypoint-initdb.d:ro
+      - ./backend/sql/migrations:/docker-entrypoint-initdb.d:ro
     networks:
-      - indiestack-network
+      - indiestack-final-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U indiestack -d indiestack"]
       interval: 5s
@@ -82,13 +82,13 @@ services:
   # Redis
   redis:
     image: redis:7-alpine
-    container_name: indiestack-redis
+    container_name: indiestack-final-redis
     ports:
-      - "6381:6379"
+      - "6384:6379"
     volumes:
       - redis-data:/data
     networks:
-      - indiestack-network
+      - indiestack-final-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -99,33 +99,33 @@ services:
   # MeiliSearch
   meilisearch:
     image: getmeili/meilisearch:v1.6
-    container_name: indiestack-meilisearch
+    container_name: indiestack-final-meilisearch
     environment:
       - MEILI_MASTER_KEY=indiestack_meili_key
       - MEILI_ENV=development
     ports:
-      - "7702:7700"
+      - "7705:7700"
     volumes:
       - meilisearch-data:/meili_data
     networks:
-      - indiestack-network
+      - indiestack-final-network
     restart: unless-stopped
 
   # NATS
   nats:
     image: nats:2-alpine
-    container_name: indiestack-nats
+    container_name: indiestack-final-nats
     ports:
-      - "4224:4222"
-      - "8222:8222"
+      - "4227:4222"
+      - "8227:8222"
     volumes:
       - nats-data:/data
     networks:
-      - indiestack-network
+      - indiestack-final-network
     restart: unless-stopped
 
 networks:
-  indiestack-network:
+  indiestack-final-network:
     driver: bridge
 
 volumes:
