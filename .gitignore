@@ -73,3 +73,7 @@ ADMIN_CREDENTIALS.md
 
 # Test artifacts
 playwright-live-tests/test-results/
+login.json
+login-response.json
+token.txt
+

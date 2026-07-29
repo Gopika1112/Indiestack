@@ -1,3 +1,5 @@
+name: indiestack
+
 services:
   # Reverse Proxy
   caddy:
@@ -6,6 +8,7 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "8080:80"
       - "443:443"
       - "443:443/udp"
     volumes:
@@ -42,15 +45,16 @@ services:
     container_name: indiestack-api
     restart: unless-stopped
     environment:
-      - APP_ENV=${APP_ENV:-production}
+      - APP_ENV=${APP_ENV:-development}
       - SERVER_PORT=${SERVER_PORT:-3001}
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=${DATABASE_URL:-postgres://indiestack:indiestack_secret@postgres:5432/indiestack?sslmode=disable}
       - REDIS_URL=${REDIS_URL:-redis:6379}
       - NATS_URL=${NATS_URL:-nats://nats:4222}
       - MEILISEARCH_URL=${MEILISEARCH_URL:-http://meilisearch:7700}
-      - MEILISEARCH_API_KEY=${MEILI_MASTER_KEY}
-      - JWT_SECRET=${JWT_SECRET}
-      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - MEILISEARCH_API_KEY=${MEILI_MASTER_KEY:-local-dev-meili-master-key}
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-local-dev-meili-master-key}
+      - JWT_SECRET=${JWT_SECRET:-dev-only-jwt-secret-min-32-bytes-local}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-dev-only-refresh-secret-local}
       - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
       - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
       - SMTP_HOST=${SMTP_HOST}
@@ -82,7 +86,7 @@ services:
     restart: unless-stopped
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-indiestack}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-indiestack_secret}
       - POSTGRES_DB=${POSTGRES_DB:-indiestack}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -90,7 +94,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-indiestack} -d ${POSTGRES_DB:-indiestack}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-indiestack} -d ${POSTGRES_DB:-indiestack}" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -116,7 +120,7 @@ services:
     container_name: indiestack-meilisearch
     restart: unless-stopped
     environment:
-      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-local-dev-meili-master-key}
       - MEILI_NO_ANALYTICS=true
     volumes:
       - meilisearch_data:/meili_data
@@ -147,8 +151,8 @@ services:
     container_name: indiestack-email-worker
     restart: unless-stopped
     environment:
-      - APP_ENV=${APP_ENV:-production}
-      - DATABASE_URL=${DATABASE_URL}
+      - APP_ENV=${APP_ENV:-development}
+      - DATABASE_URL=${DATABASE_URL:-postgres://indiestack:indiestack_secret@postgres:5432/indiestack?sslmode=disable}
       - NATS_URL=${NATS_URL:-nats://nats:4222}
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT:-587}
@@ -168,8 +172,8 @@ services:
     container_name: indiestack-feed-worker
     restart: unless-stopped
     environment:
-      - APP_ENV=${APP_ENV:-production}
-      - DATABASE_URL=${DATABASE_URL}
+      - APP_ENV=${APP_ENV:-development}
+      - DATABASE_URL=${DATABASE_URL:-postgres://indiestack:indiestack_secret@postgres:5432/indiestack?sslmode=disable}
       - REDIS_URL=${REDIS_URL:-redis:6379}
       - NATS_URL=${NATS_URL:-nats://nats:4222}
     depends_on:

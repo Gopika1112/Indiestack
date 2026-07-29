@@ -1,5 +1,0 @@
--- This file is deprecated and is not executed by Docker Compose.
--- Seed data now lives in the init-migration directory:
---   backend/sql/migrations/002_seed_data.sql
--- That file is mounted into PostgreSQL via docker-compose.yml and runs automatically on first start.
--- Kept here for backward compatibility only.

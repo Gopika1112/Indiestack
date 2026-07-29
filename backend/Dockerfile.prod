@@ -10,7 +10,7 @@ ENV GOTOOLCHAIN=auto
 RUN go mod tidy
 
 # Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/api-server ./cmd/api/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/api-server ./cmd/api
 
 # Production stage
 FROM alpine:3.19
