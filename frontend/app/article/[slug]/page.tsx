@@ -7,13 +7,15 @@ async function getArticle(slug: string) {
   return data.data;
 }
 
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
-  const article = await getArticle(params.slug);
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const article = await getArticle(slug);
   return { title: article?.title || "Article", description: article?.excerpt || "" };
 }
 
-export default async function ArticlePage({ params }: { params: { slug: string } }) {
-  const article = await getArticle(params.slug);
+export default async function ArticlePage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const article = await getArticle(slug);
   if (!article) return <div className="max-w-3xl mx-auto p-8"><h1 className="text-2xl font-bold">Article not found</h1></div>;
   return (
     <article className="max-w-3xl mx-auto p-8">

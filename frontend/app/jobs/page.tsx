@@ -1,6 +1,5 @@
 "use client";
 import { useState, useEffect } from "react";
-import Link from "next/link";
 export default function JobsPage() {
   const [jobs, setJobs] = useState<any[]>([]);
   useEffect(() => {
@@ -17,7 +16,7 @@ export default function JobsPage() {
             <p className="text-muted-foreground">{j.company_name} · {j.location || "Remote"} · {j.work_mode}</p>
             <div className="flex gap-2 mt-2">
               <span className="text-xs bg-muted px-2 py-1 rounded">{j.job_type}</span>
-              {j.salary_min && <span className="text-xs bg-muted px-2 py-1 rounded">₹{j.salary_min/1000}k - ₹{j.salary_max/1000}k</span>}
+              {j.salary_min && <span className="text-xs bg-muted px-2 py-1 rounded">₹{j.salary_min / 1000}k - ₹{j.salary_max / 1000}k</span>}
             </div>
           </div>
         ))}

@@ -1,15 +1,13 @@
-version: "3.9"
-
 services:
   # Backend - Go API
   go-api:
     build:
       context: ./backend
       dockerfile: Dockerfile.full
-    container_name: indiestack-api
+    container_name: indiestack-full-api
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "3003:3001"
     environment:
       - APP_ENV=production
       - SERVER_PORT=3001
@@ -19,30 +17,30 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - indiestack-network
+      - indiestack-full-network
 
   # Frontend - Next.js
   nextjs:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: indiestack-nextjs
+    container_name: indiestack-full-nextjs
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3002:3000"
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
+      - NEXT_PUBLIC_API_URL=http://localhost:3003/api/v1
       - API_URL=http://go-api:3001
     depends_on:
       - go-api
     networks:
-      - indiestack-network
+      - indiestack-full-network
 
   # PostgreSQL with TimescaleDB
   postgres:
     image: timescale/timescaledb:latest-pg16
-    container_name: indiestack-postgres
+    container_name: indiestack-full-postgres
     restart: unless-stopped
     environment:
       - POSTGRES_USER=indiestack
@@ -52,32 +50,32 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/sql/migrations:/docker-entrypoint-initdb.d
     ports:
-      - "5434:5432"
+      - "5436:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U indiestack -d indiestack"]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - indiestack-network
+      - indiestack-full-network
 
   # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: indiestack-redis
+    container_name: indiestack-full-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     ports:
-      - "6381:6379"
+      - "6383:6379"
     networks:
-      - indiestack-network
+      - indiestack-full-network
 
   # MeiliSearch
   meilisearch:
     image: getmeili/meilisearch:latest
-    container_name: indiestack-meilisearch
+    container_name: indiestack-full-meilisearch
     restart: unless-stopped
     environment:
       - MEILI_MASTER_KEY=master_key
@@ -85,23 +83,23 @@ services:
     volumes:
       - meilisearch_data:/meili_data
     ports:
-      - "7702:7700"
+      - "7704:7700"
     networks:
-      - indiestack-network
+      - indiestack-full-network
 
   # NATS JetStream
   nats:
     image: nats:latest
-    container_name: indiestack-nats
+    container_name: indiestack-full-nats
     restart: unless-stopped
     command: "-js -m 8222"
     ports:
-      - "4224:4222"
-      - "8224:8222"
+      - "4226:4222"
+      - "8226:8222"
     volumes:
       - nats_data:/data/jetstream
     networks:
-      - indiestack-network
+      - indiestack-full-network
 
 volumes:
   postgres_data:
@@ -110,5 +108,5 @@ volumes:
   nats_data:
 
 networks:
-  indiestack-network:
+  indiestack-full-network:
     driver: bridge

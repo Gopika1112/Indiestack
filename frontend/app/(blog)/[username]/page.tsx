@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+
+
+
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
@@ -27,13 +30,40 @@ export default function ProfilePage() {
   const [followLoading, setFollowLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"posts" | "about">("posts");
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const isOwnProfile = currentUser?.username === username;
 
-  useEffect(() => {
-    loadProfile();
-  }, [username]);
-
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
       const [userResponse, postsResponse] = await Promise.all([
@@ -52,7 +82,11 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [username]);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   const handleFollow = async () => {
     if (!isAuthenticated) return;
@@ -191,11 +225,10 @@ export default function ProfilePage() {
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-3 text-sm font-medium transition-colors relative capitalize ${
-                activeTab === tab
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={`px-4 py-3 text-sm font-medium transition-colors relative capitalize ${activeTab === tab
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
             >
               {tab}
               {activeTab === tab && (
