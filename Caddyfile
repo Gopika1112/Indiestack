@@ -19,6 +19,11 @@
     }
 
         # RSS, sitemap, and robots.txt routes
+    # Match both bare /rss and /rss/* (e.g. /rss/{username})
+    handle /rss {
+        reverse_proxy go-api:3001
+    }
+
     handle /rss/* {
         reverse_proxy go-api:3001
     }
