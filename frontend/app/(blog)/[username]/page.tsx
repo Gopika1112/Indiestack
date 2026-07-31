@@ -8,14 +8,14 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { userAPI, postAPI, User, Post } from "@/lib/api";
+import { userAPI, postAPI, mutesAPI, User, Post, MutedUser } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PostCard } from "@/components/feed/post-card";
 import { formatDate, getInitials } from "@/lib/utils";
-import { MapPin, Link as LinkIcon, Calendar, PenLine } from "lucide-react";
+import { MapPin, Link as LinkIcon, Calendar, PenLine, Ban } from "lucide-react";
 
 export default function ProfilePage() {
   const params = useParams();
@@ -29,6 +29,8 @@ export default function ProfilePage() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"posts" | "about">("posts");
+  const [isMuted, setIsMuted] = useState(false);
+  const [mutedUsers, setMutedUsers] = useState<MutedUser[]>([]);
 
 
 
@@ -66,9 +68,10 @@ export default function ProfilePage() {
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
-      const [userResponse, postsResponse] = await Promise.all([
+      const [userResponse, postsResponse, mutesResponse] = await Promise.all([
         userAPI.getByUsername(username),
         postAPI.listByAuthor(username, { limit: 20 }),
+        mutesAPI.list(),
       ]);
 
       if (userResponse.success && userResponse.data) {
@@ -76,6 +79,13 @@ export default function ProfilePage() {
       }
       if (postsResponse.success && postsResponse.data) {
         setPosts(postsResponse.data);
+      }
+      if (mutesResponse.success && mutesResponse.data) {
+        const muted = mutesResponse.data as MutedUser[];
+        setMutedUsers(muted);
+        if (userResponse.data) {
+          setIsMuted(muted.some((m) => m.id === userResponse.data!.id));
+        }
       }
     } catch (error) {
       console.error("Failed to load profile:", error);
@@ -106,6 +116,23 @@ export default function ProfilePage() {
       console.error("Follow action failed:", error);
     } finally {
       setFollowLoading(false);
+    }
+  };
+
+  const handleMute = async () => {
+    if (!isAuthenticated || !profile) return;
+    
+    try {
+      if (isMuted) {
+        await mutesAPI.unmute(profile.id);
+        setMutedUsers(mutedUsers.filter((m) => m.id !== profile.id));
+      } else {
+        await mutesAPI.mute(profile.id);
+        setMutedUsers([...mutedUsers, { id: profile.id, username: profile.username } as MutedUser]);
+      }
+      setIsMuted(!isMuted);
+    } catch (error) {
+      console.error("Mute action failed:", error);
     }
   };
 
@@ -166,15 +193,26 @@ export default function ProfilePage() {
               </Button>
             </Link>
           ) : (
-            <Button
-              onClick={handleFollow}
-              disabled={followLoading || !isAuthenticated}
-              variant={isFollowing ? "outline" : "default"}
-              size="sm"
-              className="rounded-full px-5"
-            >
-              {isFollowing ? "Following" : "Follow"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleFollow}
+                disabled={followLoading || !isAuthenticated}
+                variant={isFollowing ? "outline" : "default"}
+                size="sm"
+                className="rounded-full px-5"
+              >
+                {isFollowing ? "Following" : "Follow"}
+              </Button>
+              <Button
+                onClick={handleMute}
+                variant="outline"
+                size="sm"
+                className={`rounded-full ${isMuted ? "text-red-500" : ""}`}
+              >
+                <Ban className="h-4 w-4 mr-1" />
+                {isMuted ? "Muted" : "Mute"}
+              </Button>
+            </div>
           )}
         </div>
 

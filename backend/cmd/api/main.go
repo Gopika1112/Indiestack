@@ -102,9 +102,10 @@ type Post struct {
 	ViewCount          int             `json:"view_count"`
 	LikeCount          int             `json:"like_count"`
 	CommentCount       int             `json:"comment_count"`
+	RepostCount        int             `json:"repost_count"`
 	IsPremium          bool            `json:"is_premium"`
 	CreatedAt          time.Time       `json:"created_at"`
-	UpdatedAt          time.Time       `json:"updated_at"`
+	UpdatedAt          *time.Time      `json:"updated_at"`
 }
 
 type AuthTokens struct {
@@ -812,14 +813,15 @@ func getPostBySlug(w http.ResponseWriter, username, slug string) {
 		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 		 p.slug, p.title, p.content, p.excerpt, p.cover_image_url, p.reading_time_minutes,
 		 p.word_count, p.status, p.published_at, p.view_count, p.like_count, p.comment_count,
-		 p.is_premium, p.created_at
+		 p.is_premium, p.created_at, p.repost_count, p.updated_at
 		 FROM posts p JOIN users u ON p.author_id = u.id
 		 WHERE u.username = $1 AND p.slug = $2 AND p.status = 'published'`,
 		username, slug,
 	).Scan(&post.ID, &post.AuthorID, &post.AuthorUsername, &authorName, &authorAvatar,
 		&post.Slug, &post.Title, &post.Content, &post.Excerpt, &post.CoverImageURL,
 		&post.ReadingTimeMinutes, &post.WordCount, &post.Status, &post.PublishedAt,
-		&post.ViewCount, &post.LikeCount, &post.CommentCount, &post.IsPremium, &post.CreatedAt)
+		&post.ViewCount, &post.LikeCount, &post.CommentCount, &post.IsPremium, &post.CreatedAt,
+		&post.RepostCount, &post.UpdatedAt)
 	if err != nil {
 		jsonError(w, http.StatusNotFound, "NOT_FOUND", "Post not found")
 		return
@@ -946,37 +948,109 @@ func feedHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func latestFeedHandler(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.Query(`
-		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
-		 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
-		 p.published_at, p.view_count, p.like_count, p.is_premium
-		 FROM posts p JOIN users u ON p.author_id = u.id
-		 WHERE p.status = 'published'
-		 ORDER BY p.published_at DESC NULLS LAST
-		 LIMIT 20`)
-	if err != nil {
-		jsonSuccess(w, http.StatusOK, []Post{})
-		return
+	// Filter out posts from muted authors if user is authenticated
+	userID, _ := extractUserID(r)
+	var mutedIDs []string
+
+	if userID != "" {
+		rows, err := db.Query("SELECT muted_user_id::text FROM mutes WHERE user_id = $1", userID)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var mutedID string
+				if err := rows.Scan(&mutedID); err == nil {
+					mutedIDs = append(mutedIDs, mutedID)
+				}
+			}
+		}
 	}
-	defer rows.Close()
-	jsonSuccess(w, http.StatusOK, scanFeedPosts(rows))
+
+	var baseQuery string
+	if len(mutedIDs) > 0 {
+		baseQuery = `
+			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+			 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
+			 p.published_at, p.view_count, p.like_count, p.is_premium
+			 FROM posts p JOIN users u ON p.author_id = u.id
+			 WHERE p.status = 'published' AND u.id != ANY($1::uuid[])
+			 ORDER BY p.published_at DESC NULLS LAST
+			 LIMIT 20`
+		rows, err := db.Query(baseQuery, mutedIDs)
+		if err != nil {
+			jsonSuccess(w, http.StatusOK, []Post{})
+			return
+		}
+		defer rows.Close()
+		jsonSuccess(w, http.StatusOK, scanFeedPosts(rows))
+	} else {
+		rows, err := db.Query(`
+			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+			 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
+			 p.published_at, p.view_count, p.like_count, p.is_premium
+			 FROM posts p JOIN users u ON p.author_id = u.id
+			 WHERE p.status = 'published'
+			 ORDER BY p.published_at DESC NULLS LAST
+			 LIMIT 20`)
+		if err != nil {
+			jsonSuccess(w, http.StatusOK, []Post{})
+			return
+		}
+		defer rows.Close()
+		jsonSuccess(w, http.StatusOK, scanFeedPosts(rows))
+	}
 }
 
 func trendingFeedHandler(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.Query(`
-		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
-		 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
-		 p.published_at, p.view_count, p.like_count, p.is_premium
-		 FROM posts p JOIN users u ON p.author_id = u.id
-		 WHERE p.status = 'published'
-		 ORDER BY (p.view_count + p.like_count * 2) DESC
-		 LIMIT 20`)
-	if err != nil {
-		jsonSuccess(w, http.StatusOK, []Post{})
-		return
+	// Filter out posts from muted authors if user is authenticated
+	userID, _ := extractUserID(r)
+	var mutedIDs []string
+
+	if userID != "" {
+		rows, err := db.Query("SELECT muted_user_id::text FROM mutes WHERE user_id = $1", userID)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var mutedID string
+				if err := rows.Scan(&mutedID); err == nil {
+					mutedIDs = append(mutedIDs, mutedID)
+				}
+			}
+		}
 	}
-	defer rows.Close()
-	jsonSuccess(w, http.StatusOK, scanFeedPosts(rows))
+
+	var baseQuery string
+	if len(mutedIDs) > 0 {
+		baseQuery = `
+			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+			 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
+			 p.published_at, p.view_count, p.like_count, p.is_premium
+			 FROM posts p JOIN users u ON p.author_id = u.id
+			 WHERE p.status = 'published' AND u.id != ALL($1::uuid[])
+			 ORDER BY (p.like_count + p.comment_count * 2 + p.repost_count * 3) DESC NULLS FIRST, p.published_at DESC NULLS LAST
+			 LIMIT 50`
+		rows, err := db.Query(baseQuery, mutedIDs)
+		if err != nil {
+			jsonSuccess(w, http.StatusOK, []Post{})
+			return
+		}
+		defer rows.Close()
+		jsonSuccess(w, http.StatusOK, scanFeedPosts(rows))
+	} else {
+		rows, err := db.Query(`
+			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+			 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
+			 p.published_at, p.view_count, p.like_count, p.is_premium
+			 FROM posts p JOIN users u ON p.author_id = u.id
+			 WHERE p.status = 'published'
+			 ORDER BY (p.like_count + p.comment_count * 2 + p.repost_count * 3) DESC NULLS FIRST, p.published_at DESC NULLS LAST
+			 LIMIT 50`)
+		if err != nil {
+			jsonSuccess(w, http.StatusOK, []Post{})
+			return
+		}
+		defer rows.Close()
+		jsonSuccess(w, http.StatusOK, scanFeedPosts(rows))
+	}
 }
 
 // ============================================================

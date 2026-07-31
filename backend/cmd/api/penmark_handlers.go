@@ -1,11 +1,16 @@
 package main
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -892,6 +897,82 @@ func mutesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// --- Avatar Upload ---
+
+func handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
+	userID, err := extractUserID(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20)
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		jsonError(w, http.StatusBadRequest, "BAD_REQUEST", "File too large (max 5MB)")
+		return
+	}
+
+	file, handler, err := r.FormFile("avatar")
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "BAD_REQUEST", "No file provided. Use form field 'avatar'")
+		return
+	}
+	defer file.Close()
+
+	contentType := handler.Header.Get("Content-Type")
+	if contentType != "image/jpeg" && contentType != "image/png" && contentType != "image/gif" && contentType != "image/webp" {
+		jsonError(w, http.StatusBadRequest, "INVALID_TYPE", "Only JPG, PNG, GIF, and WebP images are allowed")
+		return
+	}
+
+	// Read file into memory
+	fileBytes, err := io.ReadAll(file)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to read file")
+		return
+	}
+
+	// Generate unique filename
+	hash := sha256.Sum256(fileBytes)
+	hashHex := hex.EncodeToString(hash[:])[:16]
+	ext := ".jpg"
+	if contentType == "image/png" {
+		ext = ".png"
+	} else if contentType == "image/gif" {
+		ext = ".gif"
+	} else if contentType == "image/webp" {
+		ext = ".webp"
+	}
+	filename := fmt.Sprintf("avatar-%s%s", hashHex, ext)
+
+	uploadDir := os.Getenv("UPLOAD_DIR")
+	if uploadDir == "" {
+		uploadDir = "./uploads"
+	}
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create upload directory")
+		return
+	}
+
+	destPath := filepath.Join(uploadDir, filename)
+	if err := os.WriteFile(destPath, fileBytes, 0644); err != nil {
+		jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save file")
+		return
+	}
+
+	baseURL := getBaseURL()
+	avatarURL := fmt.Sprintf("%s/uploads/%s", baseURL, filename)
+
+	if _, err := db.Exec("UPDATE users SET avatar_url = $1 WHERE id = $2", avatarURL, userID); err != nil {
+		jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update avatar")
+		return
+	}
+
+	jsonSuccess(w, http.StatusOK, map[string]string{
+		"url": avatarURL,
+	})
+}
+
 // --- Register All Penmark Routes ---
 
 func registerPenmarkRoutes(mux *http.ServeMux) {
@@ -909,5 +990,6 @@ func registerPenmarkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/search", searchHandler)
 	mux.HandleFunc("/api/v1/earnings", earningsHandler)
 	mux.HandleFunc("/api/v1/stats", statsHandler)
+	mux.HandleFunc("/api/v1/avatars/upload", handleUploadAvatar)
 	fmt.Println("Penmark routes registered (14 new endpoints)")
 }

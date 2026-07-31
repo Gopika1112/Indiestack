@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
@@ -10,20 +10,23 @@ import { Textarea } from "@/components/ui/textarea";
 import { profilesAPI } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { useToast } from "@/components/toast-provider";
-import { Loader2, ArrowLeft } from "lucide-react";
+import { Loader2, ArrowLeft, Upload } from "lucide-react";
 
 export default function ProfileSettingsPage() {
   const router = useRouter();
   const { user, isAuthenticated, updateUser } = useAuthStore();
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [name, setName] = useState("");
   const [headline, setHeadline] = useState("");
   const [bio, setBio] = useState("");
   const [website, setWebsite] = useState("");
   const [location, setLocation] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -36,6 +39,7 @@ export default function ProfileSettingsPage() {
     setBio(user?.bio || "");
     setWebsite(user?.website || "");
     setLocation(user?.location || "");
+    setAvatarUrl(user?.avatar_url || "");
 
     profilesAPI
       .getMe()
@@ -100,6 +104,45 @@ export default function ProfileSettingsPage() {
     }
   };
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("avatar", file);
+
+      const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+      const response = await fetch("/api/v1/avatars/upload", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error?.message || "Upload failed");
+      }
+
+      const avatarURL = data.data.url;
+      setAvatarUrl(avatarURL);
+      updateUser({ avatar_url: avatarURL });
+      toast({ title: "Avatar updated", variant: "success" });
+    } catch (error) {
+      console.error("Avatar upload failed:", error);
+      toast({
+        title: error instanceof Error ? error.message : "Failed to upload avatar",
+        variant: "error",
+      });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -123,7 +166,62 @@ export default function ProfileSettingsPage() {
             Loading profile...
           </div>
         ) : (
-          <form onSubmit={handleSave} className="space-y-5">
+          <>
+            {/* Avatar Section */}
+            <div className="mb-8">
+              <label className="text-sm font-medium mb-3 block">Profile Picture</label>
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  {avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={avatarUrl}
+                      alt="Profile"
+                      className="w-20 h-20 rounded-full object-cover border-2 border-border"
+                    />
+                  ) : (
+                    <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center border-2 border-border">
+                      <span className="text-2xl font-bold text-muted-foreground">
+                        {name ? name.charAt(0).toUpperCase() : "?"}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    onChange={handleAvatarUpload}
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    {uploading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="mr-2 h-4 w-4" />
+                        Upload Picture
+                      </>
+                    )}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    JPG, PNG, GIF, or WebP. Max 5MB.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleSave} className="space-y-5">
             <div>
               <label htmlFor="name" className="text-sm font-medium mb-1.5 block">
                 Display name
@@ -210,6 +308,7 @@ export default function ProfileSettingsPage() {
               </Link>
             </div>
           </form>
+          </>
         )}
       </main>
     </div>

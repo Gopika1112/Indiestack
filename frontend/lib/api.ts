@@ -339,6 +339,29 @@ export const repostsAPI = {
     }),
 };
 
+// Mutes API
+export interface MutedUser {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string;
+}
+
+export const mutesAPI = {
+  list: () => fetchAPI<MutedUser[]>("/mutes"),
+  
+  mute: (mutedUserId: string) =>
+    fetchAPI<{ status: string }>("/mutes", {
+      method: "POST",
+      body: JSON.stringify({ muted_user_id: mutedUserId }),
+    }),
+  
+  unmute: (mutedUserId: string) =>
+    fetchAPI<{ status: string }>(`/mutes?muted_user_id=${encodeURIComponent(mutedUserId)}`, {
+      method: "DELETE",
+    }),
+};
+
 // Bookmarks API
 export interface Bookmark {
   user_id: string;
