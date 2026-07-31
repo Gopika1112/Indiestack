@@ -104,6 +104,7 @@ type Post struct {
 	CommentCount       int             `json:"comment_count"`
 	IsPremium          bool            `json:"is_premium"`
 	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 }
 
 type AuthTokens struct {
@@ -1154,7 +1155,7 @@ func listMyPostsHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
 		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 		 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
-		 p.published_at, p.view_count, p.like_count, p.is_premium
+		 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at, p.updated_at
 		 FROM posts p JOIN users u ON p.author_id = u.id
 		 WHERE p.author_id::text = $1 AND p.status != 'archived'
 		 ORDER BY p.created_at DESC
@@ -1164,7 +1165,20 @@ func listMyPostsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	jsonSuccess(w, http.StatusOK, scanFeedPosts(rows))
+
+	posts := []Post{}
+	for rows.Next() {
+		var post Post
+		if err := rows.Scan(&post.ID, &post.AuthorID, &post.AuthorUsername, &post.AuthorName, &post.AuthorAvatar,
+			&post.Slug, &post.Title, &post.Excerpt, &post.CoverImageURL, &post.ReadingTimeMinutes,
+			&post.PublishedAt, &post.ViewCount, &post.LikeCount, &post.IsPremium, &post.Status,
+			&post.CreatedAt, &post.UpdatedAt); err != nil {
+			log.Printf("Scan my post error: %v", err)
+			continue
+		}
+		posts = append(posts, post)
+	}
+	jsonSuccess(w, http.StatusOK, posts)
 }
 
 func updatePostHandler(w http.ResponseWriter, r *http.Request, postID string) {

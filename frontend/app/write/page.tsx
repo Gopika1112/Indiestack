@@ -201,14 +201,16 @@ function WritePageEditor() {
             {saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved" : ""}
           </span>
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleSave}
-              disabled={loading || publishing || !title.trim()}
-            >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save draft"}
-            </Button>
+            {saveStatus !== "saved" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSave}
+                disabled={loading || publishing || !title.trim()}
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save draft"}
+              </Button>
+            )}
             <Button
               size="sm"
               className="rounded-full px-4"
