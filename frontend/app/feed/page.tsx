@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Navbar } from "@/components/navbar";
-import { Footer } from "@/components/footer";
 import { feedAPI, Post } from "@/lib/api";
 import { PostCard } from "@/components/feed/post-card";
+import { Footer } from "@/components/footer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PenLine, Compass } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -51,9 +50,8 @@ export default function FeedPage() {
   }, [activeTab]);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <Navbar />
-      <main className="container mx-auto px-4 py-6 max-w-[680px] flex-1">
+    <div className="flex flex-col min-h-screen">
+      <div className="container mx-auto px-4 py-6 max-w-[680px] flex-1 w-full">
         {/* Underline Tabs */}
         <div className="flex gap-0 border-b border-border mb-6">
           {TABS.map((tab) => (
@@ -116,7 +114,8 @@ export default function FeedPage() {
             </div>
           </div>
         )}
-      </main>
+      </div>
+
       <Footer />
     </div>
   );

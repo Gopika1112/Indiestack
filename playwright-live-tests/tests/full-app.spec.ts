@@ -51,12 +51,12 @@ test.describe('2. Homepage & Feed', () => {
     expect(page.url()).toContain('/feed');
   });
 
-  test('feed page loads with navbar and tabs', async ({ page }) => {
+  test('feed page loads with sidebar and tabs', async ({ page }) => {
     await page.goto('/feed');
     await page.waitForLoadState('networkidle');
 
-    // Navbar with IndieStack logo
-    await expect(page.locator('nav')).toBeVisible();
+    // Sidebar with IndieStack logo
+    await expect(page.locator('aside')).toBeVisible();
 
     // Check tabs exist (For You, Trending, Latest)
     await expect(page.getByText('For You')).toBeVisible();
@@ -201,8 +201,8 @@ test.describe('5. Login', () => {
     // Should redirect to feed
     expect(page.url()).toContain('/feed');
 
-    // Navbar should show authenticated state (Write button visible, Sign in gone)
-    await expect(page.locator('nav').getByText('Write')).toBeVisible();
+    // Sidebar should show authenticated state (Write button visible, Sign in gone)
+    await expect(page.locator('aside').getByText('Write')).toBeVisible();
   });
 });
 
@@ -477,22 +477,22 @@ test.describe('11. Dark Mode', () => {
 });
 
 // ============================================================
-// 12. NAVBAR & NAVIGATION
+// 12. SIDEBAR & NAVIGATION
 // ============================================================
 test.describe('12. Navigation Flow', () => {
   test('navigate through all pages', async ({ page }) => {
     // Feed
     await page.goto('/feed');
     await page.waitForLoadState('networkidle');
-    await expect(page.locator('nav')).toBeVisible();
+    await expect(page.locator('aside')).toBeVisible();
 
-    // Click Discover in nav
-    await page.locator('nav').getByText('Discover').first().click();
+    // Click Explore in sidebar
+    await page.locator('aside').getByText('Explore').first().click();
     await page.waitForLoadState('networkidle');
     expect(page.url()).toContain('/discover');
 
-    // Click Feed in nav
-    await page.locator('nav').getByText('Feed').first().click();
+    // Click Home in sidebar
+    await page.locator('aside').getByText('Home').first().click();
     await page.waitForLoadState('networkidle');
     expect(page.url()).toContain('/feed');
 
@@ -507,7 +507,7 @@ test.describe('12. Navigation Flow', () => {
     expect(page.url()).toContain('/register');
   });
 
-  test('authenticated navbar shows avatar dropdown', async ({ page, request }) => {
+  test('authenticated sidebar shows avatar dropdown', async ({ page, request }) => {
     const loginRes = await request.post(`${API}/auth/login`, {
       data: { email: ADMIN.email, password: ADMIN.password },
     });
@@ -533,10 +533,10 @@ test.describe('12. Navigation Flow', () => {
     await page.waitForTimeout(1500);
 
     // Write button visible
-    await expect(page.locator('nav').getByText('Write')).toBeVisible();
+    await expect(page.locator('aside').getByText('Write')).toBeVisible();
 
     // Click avatar to open dropdown
-    const avatar = page.locator('nav button:has(span[class*="Avatar"], img)').last();
+    const avatar = page.locator('aside button:has(span[class*="Avatar"], img)').last();
     if (await avatar.count() > 0) {
       await avatar.click();
       await page.waitForTimeout(1000);
@@ -570,7 +570,7 @@ test.describe('13. Admin Full Flow', () => {
     await page.waitForTimeout(1500);
 
     // Click Write
-    await page.locator('nav').getByText('Write').click();
+    await page.locator('aside').getByText('Write').click();
     await page.waitForTimeout(2000);
     expect(page.url()).toContain('/write');
 
