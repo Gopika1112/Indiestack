@@ -51,6 +51,7 @@ export interface Post {
   view_count: number;
   like_count: number;
   comment_count: number;
+  repost_count?: number;
   is_premium: boolean;
   created_at: string;
   updated_at: string;
@@ -152,11 +153,18 @@ export const userAPI = {
       body: JSON.stringify(data),
     }),
 
-  follow: (username: string) =>
-    fetchAPI<void>(`/users/${username}/follow`, { method: "POST" }),
+  // Backend follow route is /api/v1/follow and takes the target user's ID.
+  follow: (userId: string) =>
+    fetchAPI<{ status: string }>("/follow", {
+      method: "POST",
+      body: JSON.stringify({ following_id: userId }),
+    }),
 
-  unfollow: (username: string) =>
-    fetchAPI<void>(`/users/${username}/follow`, { method: "DELETE" }),
+  unfollow: (userId: string) =>
+    fetchAPI<{ status: string }>("/follow", {
+      method: "DELETE",
+      body: JSON.stringify({ following_id: userId }),
+    }),
 
   getFollowers: (username: string, params?: { limit?: number; offset?: number }) =>
     fetchAPI<User[]>(`/users/${username}/followers?${buildParams(params)}`),
@@ -281,6 +289,54 @@ export const apiKeysAPI = {
     }),
 
   delete: (id: string) => fetchAPI<void>(`/api-keys/${id}`, { method: "DELETE" }),
+};
+
+// Likes API
+export const likesAPI = {
+  like: (postId: string) =>
+    fetchAPI<{ status: string }>("/likes", {
+      method: "POST",
+      body: JSON.stringify({ post_id: postId }),
+    }),
+  unlike: (postId: string) =>
+    fetchAPI<{ status: string }>("/likes", {
+      method: "DELETE",
+      body: JSON.stringify({ post_id: postId }),
+    }),
+};
+
+// Comments API
+export interface Comment {
+  id: string;
+  post_id: string;
+  user_id: string;
+  parent_id: string | null;
+  body: string;
+  username: string;
+  created_at: string;
+}
+
+export const commentsAPI = {
+  list: (postId: string) =>
+    fetchAPI<Comment[]>(`/comments?post_id=${encodeURIComponent(postId)}`),
+  add: (postId: string, body: string, parentId?: string) =>
+    fetchAPI<{ id: string }>("/comments", {
+      method: "POST",
+      body: JSON.stringify({ post_id: postId, body, parent_id: parentId }),
+    }),
+};
+
+// Reposts API
+export const repostsAPI = {
+  repost: (postId: string) =>
+    fetchAPI<{ status: string }>("/reposts", {
+      method: "POST",
+      body: JSON.stringify({ post_id: postId }),
+    }),
+  unrepost: (postId: string) =>
+    fetchAPI<{ status: string }>(`/reposts?post_id=${encodeURIComponent(postId)}`, {
+      method: "DELETE",
+    }),
 };
 
 // Bookmarks API

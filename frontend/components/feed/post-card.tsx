@@ -6,6 +6,7 @@ import Image from "next/image";
 import { Post, bookmarksAPI } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { useToast } from "@/components/toast-provider";
+import { PostActions } from "@/components/post/post-actions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatRelativeDate, getInitials, truncate } from "@/lib/utils";
 import { Clock, Bookmark, Star } from "lucide-react";
@@ -83,31 +84,17 @@ export function PostCard({ post }: PostCardProps) {
             </p>
 
             {/* Meta row */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <Clock className="h-3.5 w-3.5" />
-                  {post.reading_time_minutes} min read
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5" />
+                {post.reading_time_minutes} min read
+              </span>
+              {post.is_premium && (
+                <span className="flex items-center gap-1 text-amber-600">
+                  <Star className="h-3.5 w-3.5 fill-current" />
+                  Member only
                 </span>
-                {post.is_premium && (
-                  <span className="flex items-center gap-1 text-amber-600">
-                    <Star className="h-3.5 w-3.5 fill-current" />
-                    Member only
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={toggleBookmark}
-                disabled={saving}
-                title={saved ? "Remove from reading list" : "Save to reading list"}
-                className={`p-1.5 transition-colors rounded ${
-                  saved
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                } ${saving ? "opacity-50" : ""}`}
-              >
-                <Bookmark className={`h-4 w-4 ${saved ? "fill-current" : ""}`} />
-              </button>
+              )}
             </div>
           </div>
 
@@ -126,6 +113,23 @@ export function PostCard({ post }: PostCardProps) {
           )}
         </div>
       </Link>
+
+      {/* Action row (outside the Link so clicks don't navigate) */}
+      <div className="flex items-center justify-between mt-2">
+        <PostActions post={post} />
+        <button
+          onClick={toggleBookmark}
+          disabled={saving}
+          title={saved ? "Remove from reading list" : "Save to reading list"}
+          className={`p-1.5 transition-colors rounded ${
+            saved
+              ? "text-primary"
+              : "text-muted-foreground hover:text-foreground"
+          } ${saving ? "opacity-50" : ""}`}
+        >
+          <Bookmark className={`h-4 w-4 ${saved ? "fill-current" : ""}`} />
+        </button>
+      </div>
     </article>
   );
 }

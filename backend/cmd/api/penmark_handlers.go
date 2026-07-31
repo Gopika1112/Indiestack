@@ -754,6 +754,144 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// --- Reposts ---
+
+func repostsHandler(w http.ResponseWriter, r *http.Request) {
+	userID, err := extractUserID(r)
+	if err != nil {
+		jsonError(w, 401, "unauthorized", "Not authenticated")
+		return
+	}
+	switch r.Method {
+	case http.MethodPost:
+		var input struct {
+			PostID string `json:"post_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.PostID == "" {
+			jsonError(w, 400, "bad_request", "post_id required")
+			return
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		defer tx.Rollback()
+		res, err := tx.Exec("INSERT INTO reposts (user_id, post_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", userID, input.PostID)
+		if err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			if _, err := tx.Exec("UPDATE posts SET repost_count = repost_count+1 WHERE id=$1", input.PostID); err != nil {
+				jsonError(w, 500, "db_error", err.Error())
+				return
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		jsonSuccess(w, 200, map[string]string{"status": "reposted"})
+	case http.MethodDelete:
+		postID := r.URL.Query().Get("post_id")
+		if postID == "" {
+			jsonError(w, 400, "bad_request", "post_id required")
+			return
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		defer tx.Rollback()
+		res, err := tx.Exec("DELETE FROM reposts WHERE user_id=$1 AND post_id=$2", userID, postID)
+		if err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			if _, err := tx.Exec("UPDATE posts SET repost_count = GREATEST(repost_count-1,0) WHERE id=$1", postID); err != nil {
+				jsonError(w, 500, "db_error", err.Error())
+				return
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		jsonSuccess(w, 200, map[string]string{"status": "removed"})
+	default:
+		jsonError(w, 405, "method_not_allowed", "Method not allowed")
+	}
+}
+
+// --- Mutes ---
+
+func mutesHandler(w http.ResponseWriter, r *http.Request) {
+	userID, err := extractUserID(r)
+	if err != nil {
+		jsonError(w, 401, "unauthorized", "Not authenticated")
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		rows, err := db.Query(`SELECT u.id, u.username, u.display_name, u.avatar_url
+			FROM mutes m JOIN users u ON m.muted_user_id = u.id
+			WHERE m.user_id = $1 ORDER BY m.created_at DESC`, userID)
+		if err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		defer rows.Close()
+		type mutedUser struct {
+			ID          string `json:"id"`
+			Username    string `json:"username"`
+			DisplayName string `json:"display_name"`
+			AvatarURL   string `json:"avatar_url"`
+		}
+		users := []mutedUser{}
+		for rows.Next() {
+			var u mutedUser
+			if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL); err != nil {
+				continue
+			}
+			users = append(users, u)
+		}
+		jsonSuccess(w, 200, users)
+	case http.MethodPost:
+		var input struct {
+			MutedUserID string `json:"muted_user_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.MutedUserID == "" {
+			jsonError(w, 400, "bad_request", "muted_user_id required")
+			return
+		}
+		if input.MutedUserID == userID {
+			jsonError(w, 400, "validation_error", "Cannot mute yourself")
+			return
+		}
+		if _, err := db.Exec("INSERT INTO mutes (user_id, muted_user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", userID, input.MutedUserID); err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		jsonSuccess(w, 200, map[string]string{"status": "muted"})
+	case http.MethodDelete:
+		mutedID := r.URL.Query().Get("muted_user_id")
+		if mutedID == "" {
+			jsonError(w, 400, "bad_request", "muted_user_id required")
+			return
+		}
+		if _, err := db.Exec("DELETE FROM mutes WHERE user_id=$1 AND muted_user_id=$2", userID, mutedID); err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		jsonSuccess(w, 200, map[string]string{"status": "unmuted"})
+	default:
+		jsonError(w, 405, "method_not_allowed", "Method not allowed")
+	}
+}
+
 // --- Register All Penmark Routes ---
 
 func registerPenmarkRoutes(mux *http.ServeMux) {
@@ -763,11 +901,13 @@ func registerPenmarkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/notifications", notificationsHandler)
 	mux.HandleFunc("/api/v1/follow", followHandler)
 	mux.HandleFunc("/api/v1/likes", likesHandler)
+	mux.HandleFunc("/api/v1/reposts", repostsHandler)
+	mux.HandleFunc("/api/v1/mutes", mutesHandler)
 	mux.HandleFunc("/api/v1/jobs", jobsHandler)
 	mux.HandleFunc("/api/v1/newsletter", newsletterHandler)
 	mux.HandleFunc("/api/v1/history", historyHandler)
 	mux.HandleFunc("/api/v1/search", searchHandler)
 	mux.HandleFunc("/api/v1/earnings", earningsHandler)
 	mux.HandleFunc("/api/v1/stats", statsHandler)
-	fmt.Println("Penmark routes registered (12 new endpoints)")
+	fmt.Println("Penmark routes registered (14 new endpoints)")
 }

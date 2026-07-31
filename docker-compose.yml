@@ -68,6 +68,9 @@ services:
       - R2_BUCKET_NAME=${R2_BUCKET_NAME:-indiestack-uploads}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@indiestack.local}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - UPLOAD_DIR=/root/uploads
+    volumes:
+      - uploads_data:/root/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -191,6 +194,7 @@ volumes:
   nats_data:
   caddy_data:
   caddy_config:
+  uploads_data:
 
 networks:
   indiestack-network:

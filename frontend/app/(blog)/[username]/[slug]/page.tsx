@@ -7,7 +7,10 @@ import Link from "next/link";
 import Image from "next/image";
 import { Navbar } from "@/components/navbar";
 import { FloatingToolbar } from "@/components/post/floating-toolbar";
-import { postAPI, Post } from "@/lib/api";
+import { PostActions } from "@/components/post/post-actions";
+import { postAPI, userAPI, Post } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth-store";
+import { useToast } from "@/components/toast-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,6 +27,35 @@ export default function PostPage() {
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(0);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
+  const { user, isAuthenticated } = useAuthStore();
+  const { toast } = useToast();
+
+  const handleFollow = async () => {
+    if (!isAuthenticated) {
+      toast({ title: "Sign in to follow authors", variant: "error" });
+      return;
+    }
+    if (!post) return;
+    setFollowLoading(true);
+    const next = !isFollowing;
+    try {
+      if (next) {
+        await userAPI.follow(post.author_id);
+        setIsFollowing(true);
+        toast({ title: `Following ${post.author_name}`, variant: "success" });
+      } else {
+        await userAPI.unfollow(post.author_id);
+        setIsFollowing(false);
+      }
+    } catch (error) {
+      console.error("Follow action failed:", error);
+      toast({ title: "Couldn't update follow", variant: "error" });
+    } finally {
+      setFollowLoading(false);
+    }
+  };
 
 
 
@@ -140,10 +172,20 @@ export default function PostPage() {
               >
                 {post.author_name}
               </Link>
-              <span className="text-muted-foreground">·</span>
-              <Button variant="ghost" size="sm" className="text-primary h-auto p-0 font-normal">
-                Follow
-              </Button>
+              {user?.id !== post.author_id && (
+                <>
+                  <span className="text-muted-foreground">·</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleFollow}
+                    disabled={followLoading}
+                    className="text-primary h-auto p-0 font-normal"
+                  >
+                    {isFollowing ? "Following" : "Follow"}
+                  </Button>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span>{formatDate(post.published_at || post.created_at)}</span>
@@ -171,10 +213,15 @@ export default function PostPage() {
         )}
 
         {/* Content */}
-        <div className="prose prose-lg max-w-none mb-16">
+        <div className="prose prose-lg max-w-none mb-10">
           {post.content && (
             <div dangerouslySetInnerHTML={{ __html: renderContent(post.content) }} />
           )}
+        </div>
+
+        {/* Like / Comment / Repost / Share */}
+        <div className="border-y py-3 mb-12">
+          <PostActions post={post} showComments />
         </div>
 
         {/* Author Card */}

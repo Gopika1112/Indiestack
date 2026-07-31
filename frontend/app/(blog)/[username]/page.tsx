@@ -89,15 +89,18 @@ export default function ProfilePage() {
   }, [loadProfile]);
 
   const handleFollow = async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !profile) return;
     setFollowLoading(true);
+    const next = !isFollowing;
     try {
-      if (isFollowing) {
-        await userAPI.unfollow(username);
-        setIsFollowing(false);
-      } else {
-        await userAPI.follow(username);
+      if (next) {
+        await userAPI.follow(profile.id);
         setIsFollowing(true);
+        setProfile({ ...profile, follower_count: profile.follower_count + 1 });
+      } else {
+        await userAPI.unfollow(profile.id);
+        setIsFollowing(false);
+        setProfile({ ...profile, follower_count: Math.max(profile.follower_count - 1, 0) });
       }
     } catch (error) {
       console.error("Follow action failed:", error);
