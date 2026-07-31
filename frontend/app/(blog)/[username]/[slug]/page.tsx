@@ -5,8 +5,9 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { Navbar } from "@/components/navbar";
+
 import { FloatingToolbar } from "@/components/post/floating-toolbar";
+import { Navbar } from "@/components/navbar";
 import { postAPI, Post } from "@/lib/api";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";

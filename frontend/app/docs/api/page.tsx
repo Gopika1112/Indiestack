@@ -1,6 +1,5 @@
 "use client";
 
-import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 
 const ENDPOINTS = [
@@ -58,7 +57,6 @@ const SCOPES = [
 export default function APIDocsPage() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <Navbar />
       <main className="container mx-auto px-4 py-10 max-w-[780px] flex-1">
         <h1 className="text-3xl font-bold mb-2">API Documentation</h1>
         <p className="text-muted-foreground mb-10">
