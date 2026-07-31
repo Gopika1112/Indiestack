@@ -11,10 +11,10 @@ export function Footer() {
             IndieStack
           </Link>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            <span className="hover:text-foreground cursor-pointer">About</span>
-            <span className="hover:text-foreground cursor-pointer">Terms</span>
-            <span className="hover:text-foreground cursor-pointer">Privacy</span>
-            <span className="hover:text-foreground cursor-pointer">Help</span>
+            <Link href="/about" className="hover:text-foreground">About</Link>
+            <Link href="/terms" className="hover:text-foreground">Terms</Link>
+            <Link href="/privacy" className="hover:text-foreground">Privacy</Link>
+            <Link href="/help" className="hover:text-foreground">Help</Link>
           </div>
           <p className="text-xs text-muted-foreground">
             &copy; {new Date().getFullYear()} IndieStack
