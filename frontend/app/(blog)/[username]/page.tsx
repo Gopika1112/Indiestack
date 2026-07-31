@@ -157,9 +157,11 @@ export default function ProfilePage() {
             </div>
           </div>
           {isOwnProfile ? (
-            <Button variant="outline" size="sm" className="rounded-full">
-              Edit profile
-            </Button>
+            <Link href="/settings/profile">
+              <Button variant="outline" size="sm" className="rounded-full">
+                Edit profile
+              </Button>
+            </Link>
           ) : (
             <Button
               onClick={handleFollow}

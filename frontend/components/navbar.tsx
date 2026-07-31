@@ -106,6 +106,12 @@ export function Navbar() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
+                    <Link href="/dashboard/drafts" className="cursor-pointer">
+                      <FileText className="mr-2 h-4 w-4" />
+                      Drafts
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
                     <Link href="/settings/api-keys" className="cursor-pointer">
                       <Key className="mr-2 h-4 w-4" />
                       API Keys
@@ -191,6 +197,13 @@ export function Navbar() {
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   Profile
+                </Link>
+                <Link
+                  href="/dashboard/drafts"
+                  className="block px-3 py-2 text-sm font-medium hover:bg-muted rounded-lg"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Drafts
                 </Link>
                 <div className="border-t my-2" />
                 <button

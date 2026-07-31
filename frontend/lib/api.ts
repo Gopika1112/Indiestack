@@ -165,6 +165,39 @@ export const userAPI = {
     fetchAPI<User[]>(`/users/${username}/following?${buildParams(params)}`),
 };
 
+// Profile API (Penmark profiles table — separate from users table)
+export interface Profile {
+  id: string;
+  user_id: string;
+  name: string;
+  headline: string;
+  company: string;
+  location: string;
+  website: string;
+  bio: string;
+  avatar_url: string;
+  open_to_work: boolean;
+}
+
+export const profilesAPI = {
+  getMe: () => fetchAPI<Profile>("/profiles/me"),
+
+  updateMe: (
+    userId: string,
+    data: {
+      name?: string;
+      headline?: string;
+      bio?: string;
+      website?: string;
+      location?: string;
+    }
+  ) =>
+    fetchAPI<{ status: string }>(`/profiles/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+};
+
 // Post API
 export const postAPI = {
   getBySlug: (username: string, slug: string) =>
@@ -194,6 +227,7 @@ export const postAPI = {
       excerpt: string;
       cover_image_url: string;
       is_premium: boolean;
+      status: string;
     }>
   ) =>
     fetchAPI<Post>(`/posts/${id}`, {
@@ -208,6 +242,8 @@ export const postAPI = {
 
   listByAuthor: (username: string, params?: { limit?: number; offset?: number }) =>
     fetchAPI<Post[]>(`/users/${username}/posts?${buildParams(params)}`),
+
+  getMyPosts: () => fetchAPI<Post[]>("/posts/mine"),
 };
 
 // Feed API

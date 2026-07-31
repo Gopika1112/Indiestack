@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -25,8 +25,10 @@ const TipTapEditor = dynamic(
   }
 );
 
-export default function WritePage() {
+function WritePageEditor() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const draftId = searchParams.get("draft");
   const { isAuthenticated, user } = useAuthStore();
   const { toast } = useToast();
   const [title, setTitle] = useState("");
@@ -40,13 +42,47 @@ export default function WritePage() {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [coverUploading, setCoverUploading] = useState(false);
+  const [draftLoading, setDraftLoading] = useState(!!draftId);
   const coverFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load an existing draft when ?draft=<id> is present.
+  useEffect(() => {
+    if (!draftId) return;
+    postAPI
+      .getById(draftId)
+      .then((res) => {
+        const p = res.data;
+        if (p) {
+          setTitle(p.title || "");
+          setExcerpt(p.excerpt || "");
+          setCoverImageUrl(p.cover_image_url || "");
+          setIsPremium(!!p.is_premium);
+          if (p.cover_image_url) setShowCoverInput(true);
+          if (p.content) setContent(JSON.stringify(p.content));
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load draft:", err);
+        toast({ title: "Failed to load draft", variant: "error" });
+      })
+      .finally(() => setDraftLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId]);
 
   if (!isAuthenticated) {
     if (typeof window !== "undefined") {
       router.push("/login");
     }
     return null;
+  }
+
+  if (draftLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-muted-foreground gap-2">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        Loading draft...
+      </div>
+    );
   }
 
   const generateSlug = () =>
@@ -81,18 +117,32 @@ export default function WritePage() {
     setLoading(true);
     setSaveStatus("saving");
     try {
-      const response = await postAPI.create({
-        title,
-        content: JSON.parse(content || "{}") as Record<string, unknown>,
-        excerpt,
-        cover_image_url: coverImageUrl,
-        is_premium: isPremium,
-        slug: generateSlug(),
-        status: "draft",
-      });
-      if (response.success) {
+      if (draftId) {
+        // Update the existing draft in place.
+        await postAPI.update(draftId, {
+          title,
+          content: JSON.parse(content || "{}") as Record<string, unknown>,
+          excerpt,
+          cover_image_url: coverImageUrl,
+          is_premium: isPremium,
+          status: "draft",
+        });
         setSaveStatus("saved");
         toast({ title: "Draft saved", variant: "success" });
+      } else {
+        const response = await postAPI.create({
+          title,
+          content: JSON.parse(content || "{}") as Record<string, unknown>,
+          excerpt,
+          cover_image_url: coverImageUrl,
+          is_premium: isPremium,
+          slug: generateSlug(),
+          status: "draft",
+        });
+        if (response.success) {
+          setSaveStatus("saved");
+          toast({ title: "Draft saved", variant: "success" });
+        }
       }
     } catch (error) {
       console.error("Failed to save:", error);
@@ -107,18 +157,29 @@ export default function WritePage() {
     if (!title.trim()) return;
     setPublishing(true);
     try {
-      const response = await postAPI.create({
+      const payload = {
         title,
         content: JSON.parse(content || "{}") as Record<string, unknown>,
         excerpt,
         cover_image_url: coverImageUrl,
         is_premium: isPremium,
-        slug: generateSlug(),
         status: "published",
-      });
-      if (response.success && response.data) {
+      };
+
+      if (draftId) {
+        // Publish the existing draft, then navigate using its known slug.
+        await postAPI.update(draftId, payload);
         toast({ title: "Story published!", variant: "success" });
-        router.push(`/@${user?.username}/${response.data.slug}`);
+        router.push(`/@${user?.username}/${generateSlug()}`);
+      } else {
+        const response = await postAPI.create({
+          ...payload,
+          slug: generateSlug(),
+        });
+        if (response.success && response.data) {
+          toast({ title: "Story published!", variant: "success" });
+          router.push(`/@${user?.username}/${response.data.slug}`);
+        }
       }
     } catch (error) {
       console.error("Failed to publish:", error);
@@ -349,5 +410,20 @@ export default function WritePage() {
         </Dialog.Portal>
       </Dialog.Root>
     </div>
+  );
+}
+
+export default function WritePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center text-muted-foreground gap-2">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Loading editor...
+        </div>
+      }
+    >
+      <WritePageEditor />
+    </Suspense>
   );
 }
