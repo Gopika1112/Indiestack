@@ -29,8 +29,11 @@ import {
   X,
   PanelLeftClose,
   PanelLeftOpen,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useState } from "react";
+import { useTheme } from "next-themes";
 import { getInitials } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -39,6 +42,7 @@ const NAV_ITEMS = [
   { href: "/search", label: "Search", icon: Search },
   { href: "/bookmarks", label: "Bookmarks", icon: Bookmark },
   { href: "/history", label: "History", icon: Clock },
+  { href: "/dashboard/drafts", label: "Drafts", icon: FileText },
 ];
 
 export function Sidebar() {
@@ -46,6 +50,7 @@ export function Sidebar() {
   const { collapsed, toggle } = useSidebarStore();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
 
   const isActive = (href: string) => {
     if (href === "/feed") return pathname === "/feed" || pathname === "/";
@@ -197,6 +202,22 @@ export function Sidebar() {
           )}
         </nav>
 
+        {/* Theme toggle */}
+        <div className={`border-t border-border/60 py-3 shrink-0 ${collapsed ? "lg:flex lg:justify-center px-0" : "px-4"}`}>
+          <button
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className={`flex items-center gap-3 rounded-md hover:bg-muted/40 transition-colors ${
+              collapsed ? "lg:justify-center p-2 mx-auto" : "w-full px-3 py-2"
+            }`}
+            title={collapsed ? (theme === "dark" ? "Light mode" : "Dark mode") : undefined}
+          >
+            {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            <span className={collapsed ? "lg:hidden" : ""}>
+              {theme === "dark" ? "Light mode" : "Dark mode"}
+            </span>
+          </button>
+        </div>
+
         {/* Bottom section - only shown for authenticated users */}
         {isAuthenticated && (
           <div className={`border-t border-border/60 py-4 shrink-0 ${collapsed ? "lg:px-0 lg:flex lg:justify-center px-4" : "px-4"}`}>
@@ -234,6 +255,12 @@ export function Sidebar() {
                   <Link href={`/@${user?.username}`} className="cursor-pointer">
                     <FileText className="mr-2 h-4 w-4" />
                     Stories
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/dashboard/drafts" className="cursor-pointer">
+                    <FileText className="mr-2 h-4 w-4" />
+                    Drafts
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>

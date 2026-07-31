@@ -5,7 +5,6 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { Navbar } from "@/components/navbar";
 import { FloatingToolbar } from "@/components/post/floating-toolbar";
 import { PostActions } from "@/components/post/post-actions";
 import { postAPI, userAPI, Post } from "@/lib/api";
@@ -114,7 +113,6 @@ export default function PostPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
-        <Navbar />
         <main className="container mx-auto px-4 py-12 max-w-[680px]">
           <Skeleton className="h-10 w-3/4 mb-6" />
           <div className="flex items-center gap-3 mb-10">
@@ -133,7 +131,6 @@ export default function PostPage() {
   if (!post) {
     return (
       <div className="min-h-screen bg-background">
-        <Navbar />
         <main className="container mx-auto px-4 py-12 text-center max-w-[680px]">
           <h1 className="text-2xl font-bold mb-4">Post not found</h1>
           <p className="text-muted-foreground">
@@ -149,7 +146,6 @@ export default function PostPage() {
       {/* Reading progress bar */}
       <div className="reading-progress" style={{ width: `${progress}%` }} />
 
-      <Navbar />
       <article className="container mx-auto px-4 py-12 max-w-[680px]">
         {/* Title */}
         <h1 className="text-3xl md:text-4xl lg:text-[42px] font-bold tracking-tight leading-tight mb-6">

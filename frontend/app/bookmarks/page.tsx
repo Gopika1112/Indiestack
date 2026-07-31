@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { Button } from "@/components/ui/button";
 import { bookmarksAPI, postAPI, Bookmark, Post } from "@/lib/api";
@@ -75,7 +74,6 @@ export default function BookmarksPage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <Navbar />
       <main className="container mx-auto px-4 py-8 max-w-[780px] flex-1">
         <div className="mb-8">
           <h1 className="text-3xl font-bold">Reading list</h1>

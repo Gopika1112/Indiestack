@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { Button } from "@/components/ui/button";
 import { postAPI, Post } from "@/lib/api";
@@ -69,7 +68,6 @@ export default function DraftsPage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <Navbar />
       <main className="container mx-auto px-4 py-8 max-w-[780px] flex-1">
         <div className="flex items-center justify-between mb-8">
           <div>
