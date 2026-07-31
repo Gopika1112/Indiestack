@@ -108,11 +108,11 @@ func (c *Client) EnsureStream(name, subject string) error {
 		return fmt.Errorf("queue client not initialized")
 	}
 	_, err := c.js.AddStream(&nats.StreamConfig{
-		Name:     name,
-		Subjects: []string{subject},
-		Storage:  nats.FileStorage,
+		Name:      name,
+		Subjects:  []string{subject},
+		Storage:   nats.FileStorage,
 		Retention: nats.WorkQueuePolicy,
-		MaxMsgs:  100_000,
+		MaxMsgs:   100_000,
 	})
 	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
 		return err

@@ -76,4 +76,7 @@ playwright-live-tests/test-results/
 login.json
 login-response.json
 token.txt
+test-report.md
+coverage.out
+
 

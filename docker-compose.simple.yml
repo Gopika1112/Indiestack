@@ -1,7 +1,6 @@
 name: indiestack-simple
 
 services:
-  # PostgreSQL with TimescaleDB
   postgres:
     image: timescale/timescaledb:latest-pg16
     container_name: indiestack-simple-postgres
@@ -11,7 +10,7 @@ services:
       - POSTGRES_PASSWORD=indiestack_secret
       - POSTGRES_DB=indiestack
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - simple_postgres_data:/var/lib/postgresql/data
       - ./backend/sql/migrations:/docker-entrypoint-initdb.d
     ports:
       - "5435:5432"
@@ -23,20 +22,18 @@ services:
     networks:
       - indiestack-simple-network
 
-  # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: indiestack-simple-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
-      - redis_data:/data
+      - simple_redis_data:/data
     ports:
       - "6382:6379"
     networks:
       - indiestack-simple-network
 
-  # MeiliSearch
   meilisearch:
     image: getmeili/meilisearch:latest
     container_name: indiestack-simple-meilisearch
@@ -45,13 +42,12 @@ services:
       - MEILI_MASTER_KEY=master_key
       - MEILI_NO_ANALYTICS=true
     volumes:
-      - meilisearch_data:/meili_data
+      - simple_meilisearch_data:/meili_data
     ports:
       - "7703:7700"
     networks:
       - indiestack-simple-network
 
-  # NATS JetStream
   nats:
     image: nats:latest
     container_name: indiestack-simple-nats
@@ -61,15 +57,15 @@ services:
       - "4225:4222"
       - "8225:8222"
     volumes:
-      - nats_data:/data/jetstream
+      - simple_nats_data:/data/jetstream
     networks:
       - indiestack-simple-network
 
 volumes:
-  postgres_data:
-  redis_data:
-  meilisearch_data:
-  nats_data:
+  simple_postgres_data:
+  simple_redis_data:
+  simple_meilisearch_data:
+  simple_nats_data:
 
 networks:
   indiestack-simple-network:

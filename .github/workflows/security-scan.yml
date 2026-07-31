@@ -6,18 +6,20 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    - cron: '0 3 * * *'  # Daily at 3 AM
+    - cron: '0 3 * * *'
+
+env:
+  GO_VERSION: '1.23'
 
 jobs:
-  # Secret Detection
   secret-scan:
     name: Secret Detection
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Full history for better detection
+        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -30,41 +32,39 @@ jobs:
     - name: Scan for secrets
       run: |
         detect-secrets scan --baseline .secrets.baseline \
-          --exclude-files "go.sum|package-lock.json|yarn.lock|Gemfile.lock|.*\.md$" || true
-        
-        # Check if baseline was updated
+          --exclude-files "go.sum|package-lock.json|yarn.lock|Gemfile.lock|.*\\.md$" || true
+
         if [ -f .secrets.baseline ]; then
           detect-secrets audit .secrets.baseline --report --fail-on-unaudited
         fi
 
     - name: Check for credential files
       run: |
-        # Check for common credential files that shouldn't be committed
-        DISALLOWED_PATTERNS="id_rsa|id_dsa|id_ecdsa|id_ed25519|.pem|.key|.p12|.pfx|.keystore|credentials.json|service-account.json"
-        
-        FOUND=$(find . -type f \( -name "*.pem" -o -name "*.key" -o -name "*.p12" -o -name "*.pfx" -o -name "id_rsa" -o -name "id_dsa" -o -name "id_ecdsa" -o -name "id_ed25519" -o -name "credentials.json" -o -name "service-account.json" \) 2>/dev/null | grep -v ".git/" | grep -v "node_modules/" | head -20 || true)
-        
+        FOUND=$(find . -type f \
+          \( -name "*.pem" -o -name "*.key" -o -name "*.p12" -o -name "*.pfx" \
+             -o -name "id_rsa" -o -name "id_dsa" -o -name "id_ecdsa" -o -name "id_ed25519" \
+             -o -name "credentials.json" -o -name "service-account.json" \) \
+          2>/dev/null | grep -v ".git/" | grep -v "node_modules/" | head -20 || true)
+
         if [ -n "$FOUND" ]; then
-          echo "❌ Found potentially sensitive files that should not be committed:"
+          echo "Found potentially sensitive files that should not be committed:"
           echo "$FOUND"
           exit 1
         fi
-        
-        echo "✅ No sensitive files detected"
 
-  # Dependency Vulnerability Scan
+        echo "No sensitive files detected"
+
   dependency-scan:
     name: Dependency Vulnerability Scan
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
 
-    # Go dependency check
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.21'
+        go-version: ${{ env.GO_VERSION }}
 
     - name: Run Nancy (Go vulnerability scanner)
       run: |
@@ -72,7 +72,6 @@ jobs:
         go install github.com/sonatypecommunity/nancy@latest
         go list -json -deps ./... | nancy sleuth
 
-    # Node.js dependency check
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
@@ -85,18 +84,17 @@ jobs:
         cd frontend
         npm audit --audit-level=moderate
 
-  # Static Application Security Testing (SAST)
   sast:
     name: Static Analysis Security Testing
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
 
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.21'
+        go-version: ${{ env.GO_VERSION }}
 
     - name: Run gosec
       uses: securego/gosec@master
@@ -109,11 +107,10 @@ jobs:
       with:
         sarif_file: gosec.sarif
 
-  # Container Security Scan
   container-scan:
     name: Container Image Security Scan
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
 

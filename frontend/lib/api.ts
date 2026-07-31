@@ -246,3 +246,29 @@ export const apiKeysAPI = {
 
   delete: (id: string) => fetchAPI<void>(`/api-keys/${id}`, { method: "DELETE" }),
 };
+
+// Upload API
+export const uploadAPI = {
+  upload: async (file: File): Promise<{ url: string; filename: string; size: string }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_URL}/upload`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error?.message || "Upload failed");
+    }
+    return data.data;
+  },
+};

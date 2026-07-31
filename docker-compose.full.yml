@@ -1,7 +1,6 @@
 name: indiestack-full
 
 services:
-  # Backend - Go API
   go-api:
     build:
       context: ./backend
@@ -21,7 +20,6 @@ services:
     networks:
       - indiestack-full-network
 
-  # Frontend - Next.js
   nextjs:
     build:
       context: ./frontend
@@ -33,13 +31,13 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=http://localhost:3003/api/v1
+      - NEXT_PUBLIC_APP_URL=http://localhost:3002
       - API_URL=http://go-api:3001
     depends_on:
       - go-api
     networks:
       - indiestack-full-network
 
-  # PostgreSQL with TimescaleDB
   postgres:
     image: timescale/timescaledb:latest-pg16
     container_name: indiestack-full-postgres
@@ -49,7 +47,7 @@ services:
       - POSTGRES_PASSWORD=indiestack_secret
       - POSTGRES_DB=indiestack
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - full_postgres_data:/var/lib/postgresql/data
       - ./backend/sql/migrations:/docker-entrypoint-initdb.d
     ports:
       - "5436:5432"
@@ -61,20 +59,18 @@ services:
     networks:
       - indiestack-full-network
 
-  # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: indiestack-full-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
-      - redis_data:/data
+      - full_redis_data:/data
     ports:
       - "6383:6379"
     networks:
       - indiestack-full-network
 
-  # MeiliSearch
   meilisearch:
     image: getmeili/meilisearch:latest
     container_name: indiestack-full-meilisearch
@@ -83,13 +79,12 @@ services:
       - MEILI_MASTER_KEY=master_key
       - MEILI_NO_ANALYTICS=true
     volumes:
-      - meilisearch_data:/meili_data
+      - full_meilisearch_data:/meili_data
     ports:
       - "7704:7700"
     networks:
       - indiestack-full-network
 
-  # NATS JetStream
   nats:
     image: nats:latest
     container_name: indiestack-full-nats
@@ -99,15 +94,15 @@ services:
       - "4226:4222"
       - "8226:8222"
     volumes:
-      - nats_data:/data/jetstream
+      - full_nats_data:/data/jetstream
     networks:
       - indiestack-full-network
 
 volumes:
-  postgres_data:
-  redis_data:
-  meilisearch_data:
-  nats_data:
+  full_postgres_data:
+  full_redis_data:
+  full_meilisearch_data:
+  full_nats_data:
 
 networks:
   indiestack-full-network:

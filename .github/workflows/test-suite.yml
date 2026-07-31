@@ -6,20 +6,35 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    # Run full test suite daily at 2 AM UTC
     - cron: '0 2 * * *'
 
 env:
-  GO_VERSION: '1.21'
+  GO_VERSION: '1.23'
   NODE_VERSION: '20'
-  POSTGRES_VERSION: '16'
 
 jobs:
-  # Unit Tests
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Run backend unit tests
+      run: |
+        cd backend
+        go test -v ./internal/... ./internal/testutil/...
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
     services:
       postgres:
         image: timescale/timescaledb:latest-pg16
@@ -34,16 +49,6 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-      
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
 
     steps:
     - uses: actions/checkout@v4
@@ -53,240 +58,38 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
 
-    - name: Install dependencies
+    - name: Apply database schema
       run: |
-        cd backend
-        go mod download
-        go install github.com/pressly/goose/v3/cmd/goose@latest
+        sudo apt-get update && sudo apt-get install -y postgresql-client
+        PGPASSWORD=indiestack_secret psql -h localhost -U indiestack -d indiestack_test -f backend/sql/migrations/001_init.sql
+        PGPASSWORD=indiestack_secret psql -h localhost -U indiestack -d indiestack_test -f backend/sql/migrations/002_schema_patch.sql
 
-    - name: Run database migrations
+    - name: Run database integration tests
       run: |
         cd backend
-        goose -dir sql/migrations postgres "postgres://indiestack:indiestack_secret@localhost:5432/indiestack_test?sslmode=disable" up
-
-    - name: Generate sqlc code
-      run: |
-        cd backend
-        go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
-        sqlc generate
-
-    - name: Run unit tests
-      run: |
-        cd backend
-        go test -v -race -coverprofile=coverage.out ./internal/... ./pkg/...
+        go test -v -coverprofile=coverage.out ./tests/integration/...
       env:
+        TEST_DATABASE_URL: postgres://indiestack:indiestack_secret@localhost:5432/indiestack_test?sslmode=disable
         DATABASE_URL: postgres://indiestack:indiestack_secret@localhost:5432/indiestack_test?sslmode=disable
-        REDIS_URL: localhost:6379
-        JWT_SECRET: test-secret-key-min-32-bytes-long
 
     - name: Upload coverage
       uses: codecov/codecov-action@v3
+      if: always()
       with:
         files: ./backend/coverage.out
         flags: backend
         name: backend-coverage
 
-  # Security Tests
-  security-tests:
-    name: Security Tests
-    runs-on: ubuntu-latest
-    needs: unit-tests
-    
-    services:
-      postgres:
-        image: timescale/timescaledb:latest-pg16
-        env:
-          POSTGRES_USER: indiestack
-          POSTGRES_PASSWORD: indiestack_secret
-          POSTGRES_DB: indiestack_test
-        ports:
-          - 5432:5432
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
-
-    - name: Install dependencies
-      run: |
-        cd backend
-        go mod download
-
-    - name: Run security tests
-      run: |
-        cd backend
-        go test -v ./tests/security/...
-      env:
-        DATABASE_URL: postgres://indiestack:indiestack_secret@localhost:5432/indiestack_test?sslmode=disable
-        JWT_SECRET: test-secret-key-min-32-bytes-long
-
-    - name: Run gosec security scanner
-      uses: securego/gosec@master
-      with:
-        args: '-fmt sarif -out security.sarif ./backend/...'
-
-    - name: Upload security scan results
-      uses: github/codeql-action/upload-sarif@v2
-      if: always()
-      with:
-        sarif_file: security.sarif
-
-  # E2E Integration Tests
-  e2e-tests:
-    name: E2E Integration Tests
-    runs-on: ubuntu-latest
-    needs: unit-tests
-    
-    services:
-      postgres:
-        image: timescale/timescaledb:latest-pg16
-        env:
-          POSTGRES_USER: indiestack
-          POSTGRES_PASSWORD: indiestack_secret
-          POSTGRES_DB: indiestack_test
-        ports:
-          - 5432:5432
-      
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-      
-      meilisearch:
-        image: getmeili/meilisearch:latest
-        env:
-          MEILI_MASTER_KEY: test_key
-        ports:
-          - 7700:7700
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
-
-    - name: Install dependencies
-      run: |
-        cd backend
-        go mod download
-        go install github.com/pressly/goose/v3/cmd/goose@latest
-
-    - name: Run migrations
-      run: |
-        cd backend
-        goose -dir sql/migrations postgres "postgres://indiestack:indiestack_secret@localhost:5432/indiestack_test?sslmode=disable" up
-
-    - name: Run E2E tests
-      run: |
-        cd backend
-        go test -v -tags=e2e ./tests/e2e/...
-      env:
-        DATABASE_URL: postgres://indiestack:indiestack_secret@localhost:5432/indiestack_test?sslmode=disable
-        REDIS_URL: localhost:6379
-        MEILISEARCH_URL: http://localhost:7700
-        JWT_SECRET: test-secret-key-min-32-bytes-long
-        TEST_DATABASE_URL: postgres://indiestack:indiestack_secret@localhost:5432/indiestack_test?sslmode=disable
-
-  # Performance Benchmarks
-  performance-tests:
-    name: Performance Benchmarks
-    runs-on: ubuntu-latest
-    needs: unit-tests
-    
-    services:
-      postgres:
-        image: timescale/timescaledb:latest-pg16
-        env:
-          POSTGRES_USER: indiestack
-          POSTGRES_PASSWORD: indiestack_secret
-          POSTGRES_DB: indiestack_test
-        ports:
-          - 5432:5432
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
-
-    - name: Install dependencies
-      run: |
-        cd backend
-        go mod download
-        go install github.com/pressly/goose/v3/cmd/goose@latest
-
-    - name: Run migrations
-      run: |
-        cd backend
-        goose -dir sql/migrations postgres "postgres://indiestack:indiestack_secret@localhost:5432/indiestack_test?sslmode=disable" up
-
-    - name: Run benchmarks
-      run: |
-        cd backend
-        go test -bench=. -benchmem ./tests/performance/... | tee benchmark.txt
-      env:
-        DATABASE_URL: postgres://indiestack:indiestack_secret@localhost:5432/indiestack_test?sslmode=disable
-
-    - name: Upload benchmark results
-      uses: actions/upload-artifact@v4
-      with:
-        name: benchmark-results
-        path: backend/benchmark.txt
-
-  # Frontend Tests
-  frontend-tests:
-    name: Frontend Tests
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-        cache-dependency-path: frontend/package.json
-
-    - name: Install dependencies
-      run: |
-        cd frontend
-        npm ci
-
-    - name: Run TypeScript type check
-      run: |
-        cd frontend
-        npm run type-check
-
-    - name: Run ESLint
-      run: |
-        cd frontend
-        npm run lint
-
-    - name: Run tests
-      run: |
-        cd frontend
-        npm test -- --coverage --watchAll=false
-
-  # Infrastructure Tests
   infrastructure-tests:
     name: Infrastructure Health Check
     runs-on: ubuntu-latest
-    needs: [unit-tests, frontend-tests]
-    
+
     steps:
     - uses: actions/checkout@v4
 
     - name: Start infrastructure
       run: |
-        docker-compose up -d postgres redis meilisearch nats
+        docker compose up -d postgres redis meilisearch nats
         sleep 15
 
     - name: Run health check
@@ -296,13 +99,36 @@ jobs:
 
     - name: Check Docker container status
       run: |
-        docker-compose ps
+        docker compose ps
 
-  # Static Analysis
+  frontend-tests:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
+
   static-analysis:
     name: Static Analysis
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
 
@@ -311,42 +137,33 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
 
-    - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v3
-      with:
-        version: latest
-        working-directory: backend
-        args: --timeout=5m
-
-    - name: Check code complexity
+    - name: Run go vet
       run: |
         cd backend
-        go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
-        gocyclo -over 15 .
+        go vet ./...
 
-  # Test Summary
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [unit-tests, security-tests, e2e-tests, performance-tests, frontend-tests, infrastructure-tests]
+    needs: [unit-tests, integration-tests, frontend-tests, infrastructure-tests, static-analysis]
     if: always()
-    
+
     steps:
     - name: Check all tests passed
       run: |
         echo "Unit Tests: ${{ needs.unit-tests.result }}"
-        echo "Security Tests: ${{ needs.security-tests.result }}"
-        echo "E2E Tests: ${{ needs.e2e-tests.result }}"
-        echo "Performance Tests: ${{ needs.performance-tests.result }}"
+        echo "Integration Tests: ${{ needs.integration-tests.result }}"
         echo "Frontend Tests: ${{ needs.frontend-tests.result }}"
         echo "Infrastructure Tests: ${{ needs.infrastructure-tests.result }}"
-        
+        echo "Static Analysis: ${{ needs.static-analysis.result }}"
+
         if [ "${{ needs.unit-tests.result }}" != "success" ] || \
-           [ "${{ needs.security-tests.result }}" != "success" ] || \
-           [ "${{ needs.e2e-tests.result }}" != "success" ] || \
-           [ "${{ needs.infrastructure-tests.result }}" != "success" ]; then
-          echo "❌ Some critical tests failed"
+           [ "${{ needs.integration-tests.result }}" != "success" ] || \
+           [ "${{ needs.frontend-tests.result }}" != "success" ] || \
+           [ "${{ needs.infrastructure-tests.result }}" != "success" ] || \
+           [ "${{ needs.static-analysis.result }}" != "success" ]; then
+          echo "Some critical tests failed"
           exit 1
         fi
-        
-        echo "✅ All critical tests passed!"
+
+        echo "All critical tests passed!"

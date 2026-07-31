@@ -12,7 +12,6 @@ import (
 	"github.com/indiestack/indiestack/internal/queue"
 )
 
-
 // --- Penmark Types ---
 
 type Profile struct {
@@ -158,7 +157,6 @@ func updateProfileHandler(w http.ResponseWriter, r *http.Request) {
 	jsonSuccess(w, 200, map[string]string{"status": "updated"})
 }
 
-
 // --- Comments ---
 
 func commentsHandler(w http.ResponseWriter, r *http.Request) {
@@ -191,8 +189,8 @@ func commentsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		jsonSuccess(w, 200, comments)
 
-		case http.MethodPost:
-	userID, err := extractUserID(r)
+	case http.MethodPost:
+		userID, err := extractUserID(r)
 
 		if err != nil {
 			jsonError(w, 401, "unauthorized", "Not authenticated")
@@ -232,8 +230,6 @@ func commentsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
-
 // --- Bookmarks ---
 
 func bookmarksHandler(w http.ResponseWriter, r *http.Request) {
@@ -243,7 +239,7 @@ func bookmarksHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.Method {
-			case http.MethodGet:
+	case http.MethodGet:
 		rows, err := db.Query("SELECT b.user_id, b.post_id, p.title, p.slug, b.created_at FROM bookmarks b JOIN posts p ON b.post_id=p.id WHERE b.user_id=$1 ORDER BY b.created_at DESC", userID)
 
 		if err != nil {
@@ -338,7 +334,6 @@ func notificationsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
 // --- Follow/Unfollow ---
 
 func followHandler(w http.ResponseWriter, r *http.Request) {
@@ -420,7 +415,6 @@ func followHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
 // --- Likes ---
 
 func likesHandler(w http.ResponseWriter, r *http.Request) {
@@ -490,7 +484,6 @@ func likesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
 // --- Jobs ---
 
 func jobsHandler(w http.ResponseWriter, r *http.Request) {
@@ -518,7 +511,7 @@ func jobsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		jsonSuccess(w, 200, jobs)
 
-			case http.MethodPost:
+	case http.MethodPost:
 		userID, err := extractUserID(r)
 
 		if err != nil {
@@ -614,7 +607,6 @@ func newsletterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
 // --- Reading History ---
 
 func historyHandler(w http.ResponseWriter, r *http.Request) {
@@ -671,7 +663,6 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
 // --- Search ---
 
 func searchHandler(w http.ResponseWriter, r *http.Request) {
@@ -711,7 +702,6 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	jsonSuccess(w, 200, results)
 }
 
-
 // --- Earnings ---
 
 func earningsHandler(w http.ResponseWriter, r *http.Request) {
@@ -730,7 +720,6 @@ func earningsHandler(w http.ResponseWriter, r *http.Request) {
 		"total":      tipTotal,
 	})
 }
-
 
 // --- Stats (dashboard) ---
 
@@ -764,7 +753,6 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 		"followers": followerCount,
 	})
 }
-
 
 // --- Register All Penmark Routes ---
 

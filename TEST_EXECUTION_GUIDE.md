@@ -4,13 +4,102 @@
 
 This guide provides step-by-step instructions for executing the complete test suite for IndieStack, covering E2E wiring, security, load testing, and production readiness validation.
 
+> **Module 9 Update:** The project now ships with working Go unit tests, database integration tests, live API tests, an infrastructure health-check script, and updated GitHub Actions workflows. Run `make test` from `backend/` or `./scripts/testing/run-all-tests.sh` from the repository root to execute the standard test suite.
+
+## Quick Start
+
+```bash
+# From the repository root
+cd Indiestack
+
+# Run infrastructure health check
+./scripts/testing/infrastructure-check.sh
+
+# Run backend unit + integration tests
+cd backend
+make test
+
+# Generate markdown test report
+make report
+```
+
+## Module 9 Test Commands
+
+### Backend Unit Tests
+
+```bash
+cd backend
+go test -v ./internal/validate/... ./internal/auth/... ./internal/testutil/...
+```
+
+Covers:
+- Email, password, username, and display-name validation rules
+- JWT access/refresh token generation and parsing
+- Token expiry and tampering rejection
+- Refresh-token secret separation
+
+### Database Integration Tests
+
+```bash
+# Ensure a test database exists and migrations are applied.
+export TEST_DATABASE_URL="postgres://indiestack:indiestack_secret@localhost:5432/indiestack_test?sslmode=disable"
+cd backend
+go test -v ./tests/integration/...
+```
+
+Covers:
+- All required tables exist
+- User lifecycle (insert, query)
+- Post lifecycle (insert, status)
+- Follow relationships
+- `api_keys.scopes` as PostgreSQL `text[]`
+- Newsletter subscriptions
+- Foreign-key constraint enforcement
+
+### Live API Tests
+
+```bash
+# Requires the Docker Compose stack to be running.
+export TEST_API_URL=http://localhost:8080/api/v1
+cd backend
+go test -v ./tests/integration/... -run 'TestAPI|TestPublic|TestRegister|TestLogin'
+```
+
+Covers:
+- Health endpoint returns HTTP 200
+- Public feed returns HTTP 200
+- Registration + login flow
+- Invalid credentials rejected with HTTP 401
+
+### Infrastructure Health Check
+
+```bash
+# Bash
+chmod +x scripts/testing/infrastructure-check.sh
+./scripts/testing/infrastructure-check.sh
+
+# PowerShell
+.\scripts\testing\infrastructure-check.ps1
+```
+
+### Test Report
+
+```bash
+cd backend
+make report
+# Generates test-report.md
+```
+
+---
+
 ## Prerequisites
+
 
 ### Required Tools
 
 ```bash
 # Go toolchain
-go version  # 1.21+
+go version  # 1.23+
 
 # Node.js
 node --version  # 20+
@@ -18,7 +107,7 @@ npm --version   # 9+
 
 # Docker & Docker Compose
 docker --version
-docker-compose --version
+docker compose version
 
 # k6 for load testing
 k6 version

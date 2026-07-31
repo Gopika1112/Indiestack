@@ -18,13 +18,12 @@ import (
 	"syscall"
 	"time"
 
-		"github.com/golang-jwt/jwt/v5"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/indiestack/indiestack/internal/queue"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"golang.org/x/crypto/bcrypt"
 )
-
 
 var db *sql.DB
 var jwtSecret []byte
@@ -271,7 +270,7 @@ func validateAPIKey(key string) (string, []string, error) {
 		if err := bcrypt.CompareHashAndPassword([]byte(keyHash), []byte(key)); err != nil {
 			continue
 		}
-									// Match found — update last_used_at
+		// Match found — update last_used_at
 		if _, err := db.Exec(`UPDATE api_keys SET last_used_at = NOW() WHERE id = $1`, id); err != nil {
 
 			log.Printf("Failed to update last_used_at for API key %s: %v", id, err)
@@ -357,8 +356,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-
-	// --- Main ---
+// --- Main ---
 func main() {
 	// JWT Secret from env (required in production)
 
@@ -367,7 +365,7 @@ func main() {
 		if os.Getenv("APP_ENV") == "production" {
 			log.Fatal("JWT_SECRET environment variable is required in production")
 		}
-				secret = "dev-only-fallback-secret-min-32-bytes"
+		secret = "dev-only-fallback-secret-min-32-bytes"
 		log.Println("WARNING: Using fallback JWT secret — set JWT_SECRET for production")
 
 	}
@@ -663,7 +661,7 @@ func refreshHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid request")
 		return
 	}
-		token, err := jwt.Parse(req.RefreshToken, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(req.RefreshToken, func(token *jwt.Token) (interface{}, error) {
 
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method")
@@ -839,13 +837,12 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
 		return
 	}
-		if len(req.Title) == 0 || len(req.Title) > 300 {
-	jsonError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Title must be 1-300 characters")
-	return
+	if len(req.Title) == 0 || len(req.Title) > 300 {
+		jsonError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Title must be 1-300 characters")
+		return
 	}
 
-
-			postID := uuid.New().String()
+	postID := uuid.New().String()
 	slug := req.Slug
 	if slug == "" {
 		slug = strings.ToLower(strings.ReplaceAll(req.Title, " ", "-"))
@@ -926,13 +923,11 @@ func scanFeedPosts(rows *sql.Rows) []Post {
 	return posts
 }
 
-
 func feedHandler(w http.ResponseWriter, r *http.Request) {
 	// Personalized feed placeholder: currently returns the latest published posts.
 	// A full personalized feed (Redis pull + push) is outside Modules 2/3/8 scope.
 	latestFeedHandler(w, r)
 }
-
 
 func latestFeedHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
@@ -1020,7 +1015,7 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request, userID string) 
 		}
 	}
 
-		// Check max 10 keys per user
+	// Check max 10 keys per user
 	var keyCount int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM api_keys WHERE user_id::text = $1 AND is_active = true`, userID).Scan(&keyCount); err != nil {
 		jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check API key count")
@@ -1049,14 +1044,13 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request, userID string) 
 		expiresAt = &t
 	}
 
-		id := uuid.New().String()
+	id := uuid.New().String()
 
 	_, err = db.Exec(`
 
 		INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, scopes, expires_at, created_at, updated_at)
 		VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, NOW(), NOW())`,
-				id, userID, req.Name, prefix, string(hash), req.Scopes, expiresAt,
-
+		id, userID, req.Name, prefix, string(hash), req.Scopes, expiresAt,
 	)
 
 	if err != nil {
@@ -1112,7 +1106,6 @@ func listAPIKeysHandler(w http.ResponseWriter, r *http.Request, userID string) {
 	}
 	jsonSuccess(w, http.StatusOK, keys)
 }
-
 
 func deleteAPIKeyHandler(w http.ResponseWriter, r *http.Request, userID, keyID string) {
 	result, err := db.Exec(`UPDATE api_keys SET is_active = false, updated_at = NOW() WHERE id = $1 AND user_id::text = $2`, keyID, userID)

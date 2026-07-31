@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
@@ -23,7 +24,9 @@ import {
   Image as ImageIcon,
   Undo,
   Redo,
+  Loader2,
 } from "lucide-react";
+import { uploadAPI } from "@/lib/api";
 
 interface TipTapEditorProps {
   content?: string;
@@ -32,6 +35,9 @@ interface TipTapEditorProps {
 }
 
 export function TipTapEditor({ content = "", onChange, placeholder = "Start writing..." }: TipTapEditorProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -59,10 +65,40 @@ export function TipTapEditor({ content = "", onChange, placeholder = "Start writ
     return null;
   }
 
-  const addImage = () => {
+  const addImageFromUrl = () => {
     const url = window.prompt("Enter image URL");
     if (url) {
       editor.chain().focus().setImage({ src: url }).run();
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const result = await uploadAPI.upload(file);
+      editor.chain().focus().setImage({ src: result.url }).run();
+    } catch (err) {
+      console.error("Upload failed:", err);
+      addImageFromUrl();
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const addImage = () => {
+    const choice = window.confirm(
+      "Click OK to upload an image from your computer, or Cancel to paste an image URL."
+    );
+    if (choice) {
+      fileInputRef.current?.click();
+    } else {
+      addImageFromUrl();
     }
   };
 
@@ -75,6 +111,15 @@ export function TipTapEditor({ content = "", onChange, placeholder = "Start writ
 
   return (
     <div className="border rounded-lg overflow-hidden bg-background">
+      {/* Hidden file input for uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+        className="hidden"
+        onChange={handleFileUpload}
+      />
+
       {/* Toolbar */}
       <div className="border-b p-2 flex flex-wrap gap-1 bg-muted/50">
         <ToolbarButton
@@ -154,8 +199,9 @@ export function TipTapEditor({ content = "", onChange, placeholder = "Start writ
         />
         <ToolbarButton
           onClick={addImage}
-          icon={<ImageIcon className="h-4 w-4" />}
-          label="Image"
+          disabled={uploading}
+          icon={uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
+          label={uploading ? "Uploading..." : "Image"}
         />
         <div className="w-px h-6 bg-border mx-1" />
         <ToolbarButton
