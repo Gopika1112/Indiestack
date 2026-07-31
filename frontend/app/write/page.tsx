@@ -1,16 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { postAPI } from "@/lib/api";
+import { postAPI, uploadAPI } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { useToast } from "@/components/toast-provider";
-import { Loader2, ArrowLeft, X, ImagePlus } from "lucide-react";
+import { Loader2, ArrowLeft, X, ImagePlus, Upload } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 
 const TipTapEditor = dynamic(
@@ -39,6 +39,8 @@ export default function WritePage() {
   const [publishing, setPublishing] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [coverUploading, setCoverUploading] = useState(false);
+  const coverFileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isAuthenticated) {
     if (typeof window !== "undefined") {
@@ -49,6 +51,30 @@ export default function WritePage() {
 
   const generateSlug = () =>
     title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCoverUploading(true);
+    try {
+      const result = await uploadAPI.upload(file);
+      setCoverImageUrl(result.url);
+      setShowCoverInput(true);
+      toast({ title: "Cover image uploaded", variant: "success" });
+    } catch (error) {
+      console.error("Cover upload failed:", error);
+      toast({
+        title: error instanceof Error ? `Cover upload failed: ${error.message}` : "Cover upload failed",
+        variant: "error",
+      });
+    } finally {
+      setCoverUploading(false);
+      if (coverFileInputRef.current) {
+        coverFileInputRef.current.value = "";
+      }
+    }
+  };
 
   const handleSave = async () => {
     if (!title.trim()) return;
@@ -137,29 +163,73 @@ export default function WritePage() {
       {/* Editor area */}
       <main className="container mx-auto px-4 py-10 max-w-[680px]">
         {/* Cover image */}
+        {/* Hidden file input for cover upload */}
+        <input
+          ref={coverFileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+          className="hidden"
+          onChange={handleCoverUpload}
+        />
         {!showCoverInput && !coverImageUrl && (
-          <button
-            onClick={() => setShowCoverInput(true)}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors"
-          >
-            <ImagePlus className="h-4 w-4" />
-            Add cover image
-          </button>
+          <div className="flex items-center gap-4 mb-6">
+            <button
+              onClick={() => setShowCoverInput(true)}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ImagePlus className="h-4 w-4" />
+              Add cover image URL
+            </button>
+            <button
+              onClick={() => coverFileInputRef.current?.click()}
+              disabled={coverUploading}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              {coverUploading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+              {coverUploading ? "Uploading..." : "Upload cover image"}
+            </button>
+          </div>
         )}
         {(showCoverInput || coverImageUrl) && (
-          <div className="mb-6 flex items-center gap-2">
-            <Input
-              placeholder="Paste cover image URL..."
-              value={coverImageUrl}
-              onChange={(e) => setCoverImageUrl(e.target.value)}
-              className="flex-1"
-            />
-            <button
-              onClick={() => { setCoverImageUrl(""); setShowCoverInput(false); }}
-              className="p-2 text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-4 w-4" />
-            </button>
+          <div className="mb-6 space-y-3">
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Paste cover image URL..."
+                value={coverImageUrl}
+                onChange={(e) => setCoverImageUrl(e.target.value)}
+                className="flex-1"
+              />
+              <button
+                onClick={() => coverFileInputRef.current?.click()}
+                disabled={coverUploading}
+                title="Upload from device"
+                className="p-2 text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                {coverUploading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+              </button>
+              <button
+                onClick={() => { setCoverImageUrl(""); setShowCoverInput(false); }}
+                className="p-2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {coverImageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={coverImageUrl}
+                alt="Cover preview"
+                className="max-h-48 rounded-lg border object-cover"
+              />
+            )}
           </div>
         )}
 
@@ -213,12 +283,36 @@ export default function WritePage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium mb-1.5 block">Cover image URL</label>
-                <Input
-                  placeholder="https://..."
-                  value={coverImageUrl}
-                  onChange={(e) => setCoverImageUrl(e.target.value)}
-                />
+                <label className="text-sm font-medium mb-1.5 block">Cover image</label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="https://..."
+                    value={coverImageUrl}
+                    onChange={(e) => setCoverImageUrl(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => coverFileInputRef.current?.click()}
+                    disabled={coverUploading}
+                  >
+                    {coverUploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <><Upload className="mr-1.5 h-4 w-4" />Upload</>
+                    )}
+                  </Button>
+                </div>
+                {coverImageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={coverImageUrl}
+                    alt="Cover preview"
+                    className="mt-2 max-h-40 rounded-lg border object-cover"
+                  />
+                )}
               </div>
 
               <div className="flex items-center gap-3 p-3 border rounded-lg bg-muted/50">
