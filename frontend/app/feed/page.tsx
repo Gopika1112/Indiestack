@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
@@ -24,30 +24,31 @@ export default function FeedPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("for-you");
 
   useEffect(() => {
+    const loadPosts = async () => {
+      setLoading(true);
+      try {
+        let response;
+        if (activeTab === "for-you") {
+          response = await feedAPI.getFeed({ limit: 20 });
+        } else if (activeTab === "trending") {
+          response = await feedAPI.getTrending({ limit: 20 });
+        } else {
+          response = await feedAPI.getLatest({ limit: 20 });
+        }
+
+        if (response.success && response.data) {
+          setPosts(response.data);
+        }
+      } catch (error) {
+        console.error("Failed to load feed:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     loadPosts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
-
-  const loadPosts = async () => {
-    setLoading(true);
-    try {
-      let response;
-      if (activeTab === "for-you") {
-        response = await feedAPI.getFeed({ limit: 20 });
-      } else if (activeTab === "trending") {
-        response = await feedAPI.getTrending({ limit: 20 });
-      } else {
-        response = await feedAPI.getLatest({ limit: 20 });
-      }
-
-      if (response.success && response.data) {
-        setPosts(response.data);
-      }
-    } catch (error) {
-      console.error("Failed to load feed:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -59,11 +60,10 @@ export default function FeedPage() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-3 text-sm font-medium transition-colors relative ${
-                activeTab === tab.key
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={`px-4 py-3 text-sm font-medium transition-colors relative ${activeTab === tab.key
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
             >
               {tab.label}
               {activeTab === tab.key && (

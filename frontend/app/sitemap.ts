@@ -9,10 +9,6 @@ interface Post {
   published_at: string;
 }
 
-interface User {
-  username: string;
-}
-
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticPages: MetadataRoute.Sitemap = [
     { url: BASE_URL, changeFrequency: "daily", priority: 1.0 },
@@ -47,7 +43,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   // Fetch users for profile pages
-  let userEntries: MetadataRoute.Sitemap = [];
+  const userEntries: MetadataRoute.Sitemap = [];
   try {
     // We use the feed to discover authors
     const res = await fetch(`${API_URL}/feed/latest?limit=500`, {

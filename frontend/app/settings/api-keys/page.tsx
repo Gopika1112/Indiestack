@@ -49,7 +49,7 @@ export default function APIKeysPage() {
       return;
     }
     loadKeys();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, router]);
 
   const loadKeys = async () => {
     setLoading(true);
