@@ -429,6 +429,21 @@ func main() {
 	mux.HandleFunc("/api/v1/api-keys", apiKeysHandler)
 	mux.HandleFunc("/api/v1/api-keys/", apiKeysHandler)
 	mux.HandleFunc("/api/v1/posts/mine", listMyPostsHandler)
+	mux.HandleFunc("/api/v1/upload", uploadHandler)
+
+	// SEO endpoints (RSS, sitemap, robots.txt) — routed to the backend via Caddy.
+	mux.HandleFunc("/rss", rssHandler)
+	mux.HandleFunc("/rss/", rssHandler)
+	mux.HandleFunc("/sitemap.xml", sitemapHandler)
+	mux.HandleFunc("/robots.txt", robotsHandler)
+
+	// Serve uploaded files (images) from the upload directory.
+	uploadDir := os.Getenv("UPLOAD_DIR")
+	if uploadDir == "" {
+		uploadDir = "./uploads"
+	}
+	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))
+
 	registerPenmarkRoutes(mux)
 
 	port := os.Getenv("SERVER_PORT")

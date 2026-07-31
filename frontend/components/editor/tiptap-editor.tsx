@@ -22,6 +22,7 @@ import {
   Code,
   Link as LinkIcon,
   Image as ImageIcon,
+  ImagePlus,
   Undo,
   Redo,
   Loader2,
@@ -82,7 +83,11 @@ export function TipTapEditor({ content = "", onChange, placeholder = "Start writ
       editor.chain().focus().setImage({ src: result.url }).run();
     } catch (err) {
       console.error("Upload failed:", err);
-      addImageFromUrl();
+      window.alert(
+        err instanceof Error
+          ? `Image upload failed: ${err.message}`
+          : "Image upload failed. Please try again or use an image URL instead."
+      );
     } finally {
       setUploading(false);
       if (fileInputRef.current) {
@@ -91,15 +96,8 @@ export function TipTapEditor({ content = "", onChange, placeholder = "Start writ
     }
   };
 
-  const addImage = () => {
-    const choice = window.confirm(
-      "Click OK to upload an image from your computer, or Cancel to paste an image URL."
-    );
-    if (choice) {
-      fileInputRef.current?.click();
-    } else {
-      addImageFromUrl();
-    }
+  const addImageFromDevice = () => {
+    fileInputRef.current?.click();
   };
 
   const setLink = () => {
@@ -198,10 +196,15 @@ export function TipTapEditor({ content = "", onChange, placeholder = "Start writ
           label="Link"
         />
         <ToolbarButton
-          onClick={addImage}
+          onClick={addImageFromUrl}
+          icon={<ImageIcon className="h-4 w-4" />}
+          label="Insert Image from URL"
+        />
+        <ToolbarButton
+          onClick={addImageFromDevice}
           disabled={uploading}
-          icon={uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
-          label={uploading ? "Uploading..." : "Image"}
+          icon={uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+          label={uploading ? "Uploading..." : "Upload Image from Device"}
         />
         <div className="w-px h-6 bg-border mx-1" />
         <ToolbarButton
