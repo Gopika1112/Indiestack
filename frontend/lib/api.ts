@@ -283,6 +283,30 @@ export const apiKeysAPI = {
   delete: (id: string) => fetchAPI<void>(`/api-keys/${id}`, { method: "DELETE" }),
 };
 
+// Bookmarks API
+export interface Bookmark {
+  user_id: string;
+  post_id: string;
+  title?: string;
+  slug?: string;
+  created_at: string;
+}
+
+export const bookmarksAPI = {
+  list: () => fetchAPI<Bookmark[]>("/bookmarks"),
+
+  add: (postId: string) =>
+    fetchAPI<{ status: string }>("/bookmarks", {
+      method: "POST",
+      body: JSON.stringify({ post_id: postId }),
+    }),
+
+  remove: (postId: string) =>
+    fetchAPI<{ status: string }>(`/bookmarks?post_id=${encodeURIComponent(postId)}`, {
+      method: "DELETE",
+    }),
+};
+
 // Upload API
 export const uploadAPI = {
   upload: async (file: File): Promise<{ url: string; filename: string; size: string }> => {

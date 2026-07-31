@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PenLine, Menu, X, Sun, Moon, Search, Bell, User, FileText, Settings, LogOut, Key } from "lucide-react";
+import { PenLine, Menu, X, Sun, Moon, Search, Bell, User, FileText, Settings, LogOut, Key, Bookmark } from "lucide-react";
 import { useState } from "react";
 import { useTheme } from "next-themes";
 import { getInitials } from "@/lib/utils";
@@ -112,14 +112,22 @@ export function Navbar() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
+                    <Link href="/bookmarks" className="cursor-pointer">
+                      <Bookmark className="mr-2 h-4 w-4" />
+                      Reading list
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
                     <Link href="/settings/api-keys" className="cursor-pointer">
                       <Key className="mr-2 h-4 w-4" />
                       API Keys
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="cursor-pointer">
-                    <Settings className="mr-2 h-4 w-4" />
-                    Settings
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings/profile" className="cursor-pointer">
+                      <Settings className="mr-2 h-4 w-4" />
+                      Settings
+                    </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -204,6 +212,13 @@ export function Navbar() {
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   Drafts
+                </Link>
+                <Link
+                  href="/bookmarks"
+                  className="block px-3 py-2 text-sm font-medium hover:bg-muted rounded-lg"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Reading list
                 </Link>
                 <div className="border-t my-2" />
                 <button

@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Post } from "@/lib/api";
+import { Post, bookmarksAPI } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth-store";
+import { useToast } from "@/components/toast-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatRelativeDate, getInitials, truncate } from "@/lib/utils";
 import { Clock, Bookmark, Star } from "lucide-react";
@@ -12,6 +15,41 @@ interface PostCardProps {
 }
 
 export function PostCard({ post }: PostCardProps) {
+  const { isAuthenticated } = useAuthStore();
+  const { toast } = useToast();
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const toggleBookmark = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!isAuthenticated) {
+      toast({ title: "Sign in to save posts", variant: "error" });
+      return;
+    }
+    if (saving) return;
+
+    const next = !saved;
+    setSaved(next); // optimistic
+    setSaving(true);
+    try {
+      if (next) {
+        await bookmarksAPI.add(post.id);
+        toast({ title: "Saved to your reading list", variant: "success" });
+      } else {
+        await bookmarksAPI.remove(post.id);
+        toast({ title: "Removed from your reading list" });
+      }
+    } catch (err) {
+      console.error("Bookmark toggle failed:", err);
+      setSaved(!next); // revert on failure
+      toast({ title: "Couldn't update bookmark", variant: "error" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <article className="py-6 border-b border-border last:border-b-0">
       <Link href={`/@${post.author_username}/${post.slug}`} className="group block">
@@ -59,10 +97,16 @@ export function PostCard({ post }: PostCardProps) {
                 )}
               </div>
               <button
-                onClick={(e) => { e.preventDefault(); }}
-                className="p-1.5 text-muted-foreground hover:text-foreground transition-colors rounded"
+                onClick={toggleBookmark}
+                disabled={saving}
+                title={saved ? "Remove from reading list" : "Save to reading list"}
+                className={`p-1.5 transition-colors rounded ${
+                  saved
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                } ${saving ? "opacity-50" : ""}`}
               >
-                <Bookmark className="h-4 w-4" />
+                <Bookmark className={`h-4 w-4 ${saved ? "fill-current" : ""}`} />
               </button>
             </div>
           </div>

@@ -206,7 +206,7 @@ export default function PostPage() {
       </article>
 
       {/* Floating toolbar */}
-      <FloatingToolbar likeCount={post.like_count} commentCount={post.comment_count} />
+      <FloatingToolbar postId={post.id} likeCount={post.like_count} commentCount={post.comment_count} />
     </div>
   );
 }

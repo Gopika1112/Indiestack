@@ -1,16 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { bookmarksAPI } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth-store";
+import { useToast } from "@/components/toast-provider";
 import { Heart, MessageCircle, Bookmark, Share2, LinkIcon } from "lucide-react";
 
 interface FloatingToolbarProps {
+  postId: string;
   likeCount: number;
   commentCount: number;
 }
 
-export function FloatingToolbar({ likeCount, commentCount }: FloatingToolbarProps) {
+export function FloatingToolbar({ postId, likeCount, commentCount }: FloatingToolbarProps) {
+  const { isAuthenticated } = useAuthStore();
+  const { toast } = useToast();
   const [visible, setVisible] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -30,6 +38,33 @@ export function FloatingToolbar({ likeCount, commentCount }: FloatingToolbarProp
     }
   };
 
+  const toggleBookmark = async () => {
+    if (!isAuthenticated) {
+      toast({ title: "Sign in to save posts", variant: "error" });
+      return;
+    }
+    if (saving) return;
+
+    const next = !saved;
+    setSaved(next);
+    setSaving(true);
+    try {
+      if (next) {
+        await bookmarksAPI.add(postId);
+        toast({ title: "Saved to your reading list", variant: "success" });
+      } else {
+        await bookmarksAPI.remove(postId);
+        toast({ title: "Removed from your reading list" });
+      }
+    } catch (err) {
+      console.error("Bookmark toggle failed:", err);
+      setSaved(!next);
+      toast({ title: "Couldn't update bookmark", variant: "error" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!visible) return null;
 
   return (
@@ -44,8 +79,15 @@ export function FloatingToolbar({ likeCount, commentCount }: FloatingToolbarProp
           <span className="text-sm">{commentCount}</span>
         </button>
         <div className="w-px h-5 bg-border mx-1" />
-        <button className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-full hover:bg-muted">
-          <Bookmark className="h-5 w-5" />
+        <button
+          onClick={toggleBookmark}
+          disabled={saving}
+          title={saved ? "Remove from reading list" : "Save to reading list"}
+          className={`p-2 transition-colors rounded-full hover:bg-muted ${
+            saved ? "text-primary" : "text-muted-foreground hover:text-foreground"
+          } ${saving ? "opacity-50" : ""}`}
+        >
+          <Bookmark className={`h-5 w-5 ${saved ? "fill-current" : ""}`} />
         </button>
         <button
           onClick={handleCopyLink}
