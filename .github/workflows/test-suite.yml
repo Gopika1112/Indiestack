@@ -73,7 +73,7 @@ jobs:
         DATABASE_URL: postgres://indiestack:indiestack_secret@localhost:5432/indiestack_test?sslmode=disable
 
     - name: Upload coverage
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v7
       if: always()
       with:
         files: ./backend/coverage.out
