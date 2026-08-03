@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Navbar } from "@/components/navbar";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -85,7 +85,7 @@ export default function ProfileSettingsPage() {
         website: website.trim(),
         location: location.trim(),
       });
-      // Reflect the new display name/bio in the auth store so the navbar/profile update.
+      // Reflect the new display name/bio in the auth store so the sidebar/profile update.
       updateUser({
         display_name: name.trim() || user.display_name,
         bio: bio.trim(),
@@ -145,7 +145,6 @@ export default function ProfileSettingsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar />
       <main className="container mx-auto px-4 py-8 max-w-[640px]">
         <Link
           href={`/@${user?.username}`}
@@ -222,92 +221,92 @@ export default function ProfileSettingsPage() {
             </div>
 
             <form onSubmit={handleSave} className="space-y-5">
-            <div>
-              <label htmlFor="name" className="text-sm font-medium mb-1.5 block">
-                Display name
-              </label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                maxLength={100}
-                placeholder="Your name"
-              />
-            </div>
+              <div>
+                <label htmlFor="name" className="text-sm font-medium mb-1.5 block">
+                  Display name
+                </label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={100}
+                  placeholder="Your name"
+                />
+              </div>
 
-            <div>
-              <label htmlFor="headline" className="text-sm font-medium mb-1.5 block">
-                Headline
-              </label>
-              <Input
-                id="headline"
-                value={headline}
-                onChange={(e) => setHeadline(e.target.value)}
-                maxLength={200}
-                placeholder="A short tagline (e.g. Writer, Developer)"
-              />
-            </div>
+              <div>
+                <label htmlFor="headline" className="text-sm font-medium mb-1.5 block">
+                  Headline
+                </label>
+                <Input
+                  id="headline"
+                  value={headline}
+                  onChange={(e) => setHeadline(e.target.value)}
+                  maxLength={200}
+                  placeholder="A short tagline (e.g. Writer, Developer)"
+                />
+              </div>
 
-            <div>
-              <label htmlFor="bio" className="text-sm font-medium mb-1.5 block">
-                Bio
-              </label>
-              <Textarea
-                id="bio"
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                maxLength={2000}
-                rows={5}
-                placeholder="Tell readers about yourself..."
-                className="resize-none"
-              />
-            </div>
+              <div>
+                <label htmlFor="bio" className="text-sm font-medium mb-1.5 block">
+                  Bio
+                </label>
+                <Textarea
+                  id="bio"
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  maxLength={2000}
+                  rows={5}
+                  placeholder="Tell readers about yourself..."
+                  className="resize-none"
+                />
+              </div>
 
-            <div>
-              <label htmlFor="website" className="text-sm font-medium mb-1.5 block">
-                Website
-              </label>
-              <Input
-                id="website"
-                type="url"
-                value={website}
-                onChange={(e) => setWebsite(e.target.value)}
-                maxLength={500}
-                placeholder="https://yoursite.com"
-              />
-            </div>
+              <div>
+                <label htmlFor="website" className="text-sm font-medium mb-1.5 block">
+                  Website
+                </label>
+                <Input
+                  id="website"
+                  type="url"
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                  maxLength={500}
+                  placeholder="https://yoursite.com"
+                />
+              </div>
 
-            <div>
-              <label htmlFor="location" className="text-sm font-medium mb-1.5 block">
-                Location
-              </label>
-              <Input
-                id="location"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                maxLength={100}
-                placeholder="City, Country"
-              />
-            </div>
+              <div>
+                <label htmlFor="location" className="text-sm font-medium mb-1.5 block">
+                  Location
+                </label>
+                <Input
+                  id="location"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  maxLength={100}
+                  placeholder="City, Country"
+                />
+              </div>
 
-            <div className="flex items-center gap-3 pt-2">
-              <Button type="submit" disabled={saving} className="rounded-full px-6">
-                {saving ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save changes"
-                )}
-              </Button>
-              <Link href="/settings/api-keys">
-                <Button type="button" variant="ghost">
-                  Manage API keys
+              <div className="flex items-center gap-3 pt-2">
+                <Button type="submit" disabled={saving} className="rounded-full px-6">
+                  {saving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save changes"
+                  )}
                 </Button>
-              </Link>
-            </div>
-          </form>
+                <Link href="/settings/api-keys">
+                  <Button type="button" variant="ghost">
+                    Manage API keys
+                  </Button>
+                </Link>
+              </div>
+            </form>
           </>
         )}
       </main>

@@ -22,6 +22,7 @@ import {
   Search,
   Settings,
   LogOut,
+  LogIn,
   User,
   FileText,
   Key,
@@ -285,6 +286,34 @@ export function Sidebar() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
+        )}
+
+        {/* Bottom section - only shown for unauthenticated users */}
+        {!isAuthenticated && (
+          <div className={`border-t border-border/60 py-4 shrink-0 ${collapsed ? "lg:px-0 lg:flex lg:flex-col lg:items-center lg:gap-2 px-4" : "px-4 space-y-2"}`}>
+            <Link
+              href="/login"
+              onClick={() => setMobileOpen(false)}
+              title={collapsed ? "Sign in" : undefined}
+              className={`flex items-center gap-3 rounded-md border border-border text-[15px] font-medium transition-colors hover:bg-muted/40 ${
+                collapsed ? "lg:justify-center lg:p-2.5 lg:w-auto w-full px-3 py-2.5 justify-center" : "w-full px-3 py-2.5 justify-center"
+              }`}
+            >
+              <LogIn className="h-[20px] w-[20px] shrink-0" />
+              <span className={collapsed ? "lg:hidden" : ""}>Sign in</span>
+            </Link>
+            <Link
+              href="/register"
+              onClick={() => setMobileOpen(false)}
+              title={collapsed ? "Get started" : undefined}
+              className={`flex items-center gap-3 rounded-full bg-foreground text-background text-[15px] font-medium transition-colors hover:opacity-90 ${
+                collapsed ? "lg:justify-center lg:p-2.5 lg:w-auto lg:rounded-md w-full px-3 py-2.5 justify-center" : "w-full px-3 py-2.5 justify-center"
+              }`}
+            >
+              <PenLine className="h-[20px] w-[20px] shrink-0" />
+              <span className={collapsed ? "lg:hidden" : ""}>Get started</span>
+            </Link>
           </div>
         )}
       </aside>

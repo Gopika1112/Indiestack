@@ -6,7 +6,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Navbar } from "@/components/navbar";
+
+
 import { Footer } from "@/components/footer";
 import { userAPI, postAPI, mutesAPI, User, Post, MutedUser } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
@@ -121,7 +122,7 @@ export default function ProfilePage() {
 
   const handleMute = async () => {
     if (!isAuthenticated || !profile) return;
-    
+
     try {
       if (isMuted) {
         await mutesAPI.unmute(profile.id);
@@ -139,7 +140,6 @@ export default function ProfilePage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
-        <Navbar />
         <main className="container mx-auto px-4 py-8 max-w-[680px]">
           <div className="flex items-center gap-4 mb-8">
             <Skeleton className="h-20 w-20 rounded-full" />
@@ -157,7 +157,6 @@ export default function ProfilePage() {
   if (!profile) {
     return (
       <div className="min-h-screen bg-background">
-        <Navbar />
         <main className="container mx-auto px-4 py-12 text-center">
           <h1 className="text-2xl font-bold mb-4">User not found</h1>
           <p className="text-muted-foreground">
@@ -170,7 +169,6 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <Navbar />
       <main className="container mx-auto px-4 py-8 max-w-[680px] flex-1">
         {/* Profile header */}
         <div className="flex items-start justify-between mb-6">
