@@ -5,6 +5,7 @@ import { feedAPI, Post } from "@/lib/api";
 import { PostCard } from "@/components/feed/post-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { useBookmarkedIds } from "@/lib/use-bookmarks";
 import { Search, Flame } from "lucide-react";
 
 const TOPICS = [
@@ -23,29 +24,39 @@ export default function DiscoverPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+  const bookmarkedIds = useBookmarkedIds();
 
+  // Load posts whenever the selected topic changes. No topic -> trending feed;
+  // a topic -> the by-tag feed filtered server-side.
   useEffect(() => {
-    loadPosts();
-  }, []);
-
-  const loadPosts = async () => {
-    setLoading(true);
-    try {
-      const response = await feedAPI.getTrending({ limit: 50 });
-      if (response.success && response.data) {
-        setPosts(response.data);
+    const loadPosts = async () => {
+      setLoading(true);
+      try {
+        const response = selectedTopic
+          ? await feedAPI.getByTag(selectedTopic, { limit: 50 })
+          : await feedAPI.getTrending({ limit: 50 });
+        if (response.success && response.data) {
+          setPosts(response.data);
+        } else {
+          setPosts([]);
+        }
+      } catch (error) {
+        console.error("Failed to load posts:", error);
+        setPosts([]);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error("Failed to load posts:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+    loadPosts();
+  }, [selectedTopic]);
 
+  // Text search still applies client-side on top of the current list.
+  const q = searchQuery.toLowerCase();
   const filteredPosts = posts.filter(
     (post) =>
-      post.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      post.author_name.toLowerCase().includes(searchQuery.toLowerCase())
+      post.title.toLowerCase().includes(q) ||
+      post.author_name.toLowerCase().includes(q) ||
+      (post.tags || []).some((t) => t.toLowerCase().includes(q))
   );
 
   return (
@@ -77,10 +88,12 @@ export default function DiscoverPage() {
         ))}
       </div>
 
-      {/* Trending header */}
+      {/* Header */}
       <div className="flex items-center gap-2 mb-4">
         <Flame className="h-5 w-5 text-orange-500" />
-        <h2 className="text-lg font-semibold">Trending on IndieStack</h2>
+        <h2 className="text-lg font-semibold">
+          {selectedTopic ? `${selectedTopic} stories` : "Trending on IndieStack"}
+        </h2>
       </div>
 
       {loading ? (
@@ -100,7 +113,7 @@ export default function DiscoverPage() {
       ) : filteredPosts.length > 0 ? (
         <div>
           {filteredPosts.map((post) => (
-            <PostCard key={post.id} post={post} />
+            <PostCard key={post.id} post={post} initialSaved={bookmarkedIds.has(post.id)} />
           ))}
         </div>
       ) : (
@@ -108,7 +121,9 @@ export default function DiscoverPage() {
           <p className="text-muted-foreground">
             {searchQuery
               ? "No stories found matching your search."
-              : "No stories yet. Check back later!"}
+              : selectedTopic
+                ? `No stories tagged "${selectedTopic}" yet.`
+                : "No stories yet. Check back later!"}
           </p>
         </div>
       )}

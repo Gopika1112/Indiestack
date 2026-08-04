@@ -7,7 +7,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { FloatingToolbar } from "@/components/post/floating-toolbar";
 import { PostActions } from "@/components/post/post-actions";
-import { postAPI, userAPI, Post } from "@/lib/api";
+import { postAPI, userAPI, historyAPI, Post } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { useToast } from "@/components/toast-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -74,13 +74,19 @@ export default function PostPage() {
       const response = await postAPI.getBySlug(username, slug);
       if (response.success && response.data) {
         setPost(response.data);
+        // Record this read in the user's history (fire-and-forget; only when signed in).
+        if (isAuthenticated && response.data.id) {
+          historyAPI.record(response.data.id).catch(() => {
+            // Non-fatal: history recording should never block reading.
+          });
+        }
       }
     } catch (error) {
       console.error("Failed to load post:", error);
     } finally {
       setLoading(false);
     }
-  }, [username, slug]);
+  }, [username, slug, isAuthenticated]);
 
   useEffect(() => {
     loadPost();

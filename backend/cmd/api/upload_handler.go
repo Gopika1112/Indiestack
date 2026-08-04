@@ -17,10 +17,10 @@ import (
 const maxUploadSize = 10 << 20 // 10 MB
 
 var allowedImageTypes = map[string]bool{
-	"image/jpeg": true,
-	"image/png":  true,
-	"image/gif":  true,
-	"image/webp": true,
+	"image/jpeg":    true,
+	"image/png":     true,
+	"image/gif":     true,
+	"image/webp":    true,
 	"image/svg+xml": true,
 }
 
@@ -96,9 +96,11 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build public URL
-	baseURL := getBaseURL()
-	publicURL := fmt.Sprintf("%s/uploads/%s", baseURL, filename)
+	// Build public URL as a RELATIVE path so the browser resolves it against the
+	// current origin (Caddy proxies /uploads/* to this service). Baking an absolute
+	// base URL here breaks images when the backend's NEXT_PUBLIC_APP_URL is an
+	// internal/unreachable host.
+	publicURL := fmt.Sprintf("/uploads/%s", filename)
 
 	jsonSuccess(w, http.StatusOK, map[string]string{
 		"url":      publicURL,

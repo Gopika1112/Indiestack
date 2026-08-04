@@ -6,6 +6,7 @@ import { feedAPI, Post } from "@/lib/api";
 import { PostCard } from "@/components/feed/post-card";
 import { Footer } from "@/components/footer";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useBookmarkedIds } from "@/lib/use-bookmarks";
 import { PenLine, Compass } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -21,6 +22,7 @@ export default function FeedPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>("for-you");
+  const bookmarkedIds = useBookmarkedIds();
 
   useEffect(() => {
     const loadPosts = async () => {
@@ -88,7 +90,7 @@ export default function FeedPage() {
         ) : posts.length > 0 ? (
           <div>
             {posts.map((post) => (
-              <PostCard key={post.id} post={post} />
+              <PostCard key={post.id} post={post} initialSaved={bookmarkedIds.has(post.id)} />
             ))}
           </div>
         ) : (

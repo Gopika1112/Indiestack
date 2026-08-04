@@ -94,6 +94,7 @@ type Post struct {
 	Title              string          `json:"title"`
 	Content            json.RawMessage `json:"content"`
 	Excerpt            string          `json:"excerpt"`
+	Tags               []string        `json:"tags"`
 	CoverImageURL      string          `json:"cover_image_url"`
 	ReadingTimeMinutes int             `json:"reading_time_minutes"`
 	WordCount          int             `json:"word_count"`
@@ -428,6 +429,7 @@ func main() {
 	mux.HandleFunc("/api/v1/feed", feedHandler)
 	mux.HandleFunc("/api/v1/feed/latest", latestFeedHandler)
 	mux.HandleFunc("/api/v1/feed/trending", trendingFeedHandler)
+	mux.HandleFunc("/api/v1/feed/by-tag", byTagFeedHandler)
 	mux.HandleFunc("/api/v1/api-keys", apiKeysHandler)
 	mux.HandleFunc("/api/v1/api-keys/", apiKeysHandler)
 	mux.HandleFunc("/api/v1/posts/mine", listMyPostsHandler)
@@ -447,6 +449,7 @@ func main() {
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))
 
 	registerPenmarkRoutes(mux)
+	registerSettingsRoutes(mux)
 
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
@@ -760,7 +763,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 func userPostsHandler(w http.ResponseWriter, r *http.Request, username string) {
 	rows, err := db.Query(`
 		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
-		 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
+		 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
 		 p.published_at, p.view_count, p.like_count, p.is_premium
 		 FROM posts p JOIN users u ON p.author_id = u.id
 		 WHERE u.username = $1 AND p.status = 'published'
@@ -831,6 +834,60 @@ func getPostBySlug(w http.ResponseWriter, username, slug string) {
 	jsonSuccess(w, http.StatusOK, post)
 }
 
+// excerptMaxLen is the target length for an auto-generated excerpt.
+const excerptMaxLen = 160
+
+// extractTextFromTipTap walks a TipTap/ProseMirror JSON document and returns
+// its visible text content, concatenated with single spaces between blocks.
+// It ignores marks, images, and other non-text nodes.
+func extractTextFromTipTap(node map[string]interface{}) string {
+	var sb strings.Builder
+	var walk func(n map[string]interface{})
+	walk = func(n map[string]interface{}) {
+		if n == nil {
+			return
+		}
+		// Text node: append its text.
+		if t, ok := n["type"].(string); ok && t == "text" {
+			if txt, ok := n["text"].(string); ok {
+				s := strings.TrimSpace(txt)
+				if s != "" {
+					if sb.Len() > 0 {
+						sb.WriteString(" ")
+					}
+					sb.WriteString(s)
+				}
+			}
+		}
+		// Recurse into children.
+		if children, ok := n["content"].([]interface{}); ok {
+			for _, c := range children {
+				if cm, ok := c.(map[string]interface{}); ok {
+					walk(cm)
+				}
+			}
+		}
+	}
+	walk(node)
+	return strings.Join(strings.Fields(sb.String()), " ")
+}
+
+// autoExcerpt builds a plain-text excerpt from a TipTap document, truncated to
+// excerptMaxLen characters (on a word boundary) with an ellipsis when truncated.
+func autoExcerpt(content map[string]interface{}) string {
+	text := extractTextFromTipTap(content)
+	runes := []rune(text)
+	if len(runes) <= excerptMaxLen {
+		return text
+	}
+	// Cut on a word boundary at or before excerptMaxLen.
+	cut := string(runes[:excerptMaxLen])
+	if idx := strings.LastIndex(cut, " "); idx > 0 {
+		cut = cut[:idx]
+	}
+	return strings.TrimRight(cut, " ") + "..."
+}
+
 func createPost(w http.ResponseWriter, r *http.Request) {
 	userID, scopes, err := extractAuth(r)
 	if err != nil {
@@ -846,6 +903,7 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 		Title         string                 `json:"title"`
 		Content       map[string]interface{} `json:"content"`
 		Excerpt       string                 `json:"excerpt"`
+		Tags          []string               `json:"tags"`
 		CoverImageURL string                 `json:"cover_image_url"`
 		IsPremium     bool                   `json:"is_premium"`
 		Slug          string                 `json:"slug"`
@@ -874,6 +932,19 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	wordCount := len(strings.Fields(string(contentJSON)))
 	readingTime := wordCount/200 + 1
 
+	// Use the author-supplied excerpt if present; otherwise auto-generate one
+	// from the post body so the feed preview reflects the actual content.
+	excerpt := strings.TrimSpace(req.Excerpt)
+	if excerpt == "" {
+		excerpt = autoExcerpt(req.Content)
+	}
+
+	tags := req.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	tagsJSON, _ := json.Marshal(tags)
+
 	publishedAt := "NOW()"
 	if status != "published" {
 		publishedAt = "NULL"
@@ -887,10 +958,10 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	_, err = tx.Exec(`
-		INSERT INTO posts (id, author_id, slug, title, content, excerpt, cover_image_url,
+		INSERT INTO posts (id, author_id, slug, title, content, excerpt, tags, cover_image_url,
 		reading_time_minutes, word_count, status, published_at, is_premium, created_at, updated_at)
-		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, `+publishedAt+`, $11, NOW(), NOW())`,
-		postID, userID, slug, req.Title, contentJSON, req.Excerpt, req.CoverImageURL,
+		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, `+publishedAt+`, $12, NOW(), NOW())`,
+		postID, userID, slug, req.Title, contentJSON, excerpt, tagsJSON, req.CoverImageURL,
 		readingTime, wordCount, status, req.IsPremium,
 	)
 	if err != nil {
@@ -914,7 +985,7 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 
 	jsonSuccess(w, http.StatusCreated, Post{
 		ID: postID, AuthorID: userID, Slug: slug, Title: req.Title,
-		Content: contentJSON, Excerpt: req.Excerpt, CoverImageURL: req.CoverImageURL,
+		Content: contentJSON, Excerpt: excerpt, Tags: tags, CoverImageURL: req.CoverImageURL,
 		ReadingTimeMinutes: readingTime, WordCount: wordCount, Status: status,
 		IsPremium: req.IsPremium, CreatedAt: time.Now(),
 	})
@@ -924,11 +995,18 @@ func scanFeedPosts(rows *sql.Rows) []Post {
 	var posts []Post
 	for rows.Next() {
 		var post Post
+		var tagsJSON []byte
 		if err := rows.Scan(&post.ID, &post.AuthorID, &post.AuthorUsername, &post.AuthorName, &post.AuthorAvatar,
-			&post.Slug, &post.Title, &post.Excerpt, &post.CoverImageURL, &post.ReadingTimeMinutes,
+			&post.Slug, &post.Title, &post.Excerpt, &tagsJSON, &post.CoverImageURL, &post.ReadingTimeMinutes,
 			&post.PublishedAt, &post.ViewCount, &post.LikeCount, &post.IsPremium); err != nil {
 			log.Printf("Scan feed post error: %v", err)
 			continue
+		}
+		if len(tagsJSON) > 0 {
+			_ = json.Unmarshal(tagsJSON, &post.Tags)
+		}
+		if post.Tags == nil {
+			post.Tags = []string{}
 		}
 		posts = append(posts, post)
 	}
@@ -969,7 +1047,7 @@ func latestFeedHandler(w http.ResponseWriter, r *http.Request) {
 	if len(mutedIDs) > 0 {
 		baseQuery = `
 			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
-			 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
+			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
 			 p.published_at, p.view_count, p.like_count, p.is_premium
 			 FROM posts p JOIN users u ON p.author_id = u.id
 			 WHERE p.status = 'published' AND u.id != ANY($1::uuid[])
@@ -985,7 +1063,7 @@ func latestFeedHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		rows, err := db.Query(`
 			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
-			 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
+			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
 			 p.published_at, p.view_count, p.like_count, p.is_premium
 			 FROM posts p JOIN users u ON p.author_id = u.id
 			 WHERE p.status = 'published'
@@ -1022,7 +1100,7 @@ func trendingFeedHandler(w http.ResponseWriter, r *http.Request) {
 	if len(mutedIDs) > 0 {
 		baseQuery = `
 			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
-			 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
+			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
 			 p.published_at, p.view_count, p.like_count, p.is_premium
 			 FROM posts p JOIN users u ON p.author_id = u.id
 			 WHERE p.status = 'published' AND u.id != ALL($1::uuid[])
@@ -1038,7 +1116,7 @@ func trendingFeedHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		rows, err := db.Query(`
 			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
-			 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
+			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
 			 p.published_at, p.view_count, p.like_count, p.is_premium
 			 FROM posts p JOIN users u ON p.author_id = u.id
 			 WHERE p.status = 'published'
@@ -1051,6 +1129,37 @@ func trendingFeedHandler(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		jsonSuccess(w, http.StatusOK, scanFeedPosts(rows))
 	}
+}
+
+// byTagFeedHandler returns published posts that have a given tag (topic).
+// Usage: GET /api/v1/feed/by-tag?tag=Technology
+func byTagFeedHandler(w http.ResponseWriter, r *http.Request) {
+	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
+	if tag == "" {
+		jsonError(w, http.StatusBadRequest, "BAD_REQUEST", "tag query param required")
+		return
+	}
+	// tags is a JSONB array of strings; use @> containment (case-insensitive match
+	// by lower-casing both sides via a LOWER() cast comparison).
+	rows, err := db.Query(`
+		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+		 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
+		 p.published_at, p.view_count, p.like_count, p.is_premium
+		 FROM posts p JOIN users u ON p.author_id = u.id
+		 WHERE p.status = 'published'
+		   AND EXISTS (
+		     SELECT 1 FROM jsonb_array_elements_text(p.tags) t
+		     WHERE LOWER(t) = LOWER($1)
+		   )
+		 ORDER BY (p.like_count + p.comment_count * 2 + p.repost_count * 3) DESC NULLS FIRST, p.published_at DESC NULLS LAST
+		 LIMIT 50`, tag)
+	if err != nil {
+		log.Printf("by-tag feed error: %v", err)
+		jsonSuccess(w, http.StatusOK, []Post{})
+		return
+	}
+	defer rows.Close()
+	jsonSuccess(w, http.StatusOK, scanFeedPosts(rows))
 }
 
 // ============================================================
@@ -1228,7 +1337,7 @@ func listMyPostsHandler(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query(`
 		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
-		 p.slug, p.title, p.excerpt, p.cover_image_url, p.reading_time_minutes,
+		 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
 		 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at, p.updated_at
 		 FROM posts p JOIN users u ON p.author_id = u.id
 		 WHERE p.author_id::text = $1 AND p.status != 'archived'
@@ -1243,12 +1352,19 @@ func listMyPostsHandler(w http.ResponseWriter, r *http.Request) {
 	posts := []Post{}
 	for rows.Next() {
 		var post Post
+		var tagsJSON []byte
 		if err := rows.Scan(&post.ID, &post.AuthorID, &post.AuthorUsername, &post.AuthorName, &post.AuthorAvatar,
-			&post.Slug, &post.Title, &post.Excerpt, &post.CoverImageURL, &post.ReadingTimeMinutes,
+			&post.Slug, &post.Title, &post.Excerpt, &tagsJSON, &post.CoverImageURL, &post.ReadingTimeMinutes,
 			&post.PublishedAt, &post.ViewCount, &post.LikeCount, &post.IsPremium, &post.Status,
 			&post.CreatedAt, &post.UpdatedAt); err != nil {
 			log.Printf("Scan my post error: %v", err)
 			continue
+		}
+		if len(tagsJSON) > 0 {
+			_ = json.Unmarshal(tagsJSON, &post.Tags)
+		}
+		if post.Tags == nil {
+			post.Tags = []string{}
 		}
 		posts = append(posts, post)
 	}
@@ -1282,6 +1398,7 @@ func updatePostHandler(w http.ResponseWriter, r *http.Request, postID string) {
 		Title         *string                `json:"title"`
 		Content       map[string]interface{} `json:"content"`
 		Excerpt       *string                `json:"excerpt"`
+		Tags          *[]string              `json:"tags"`
 		CoverImageURL *string                `json:"cover_image_url"`
 		IsPremium     *bool                  `json:"is_premium"`
 		Status        *string                `json:"status"`
@@ -1315,13 +1432,30 @@ func updatePostHandler(w http.ResponseWriter, r *http.Request, postID string) {
 		argIdx++
 	}
 	if req.Excerpt != nil {
+		// Author explicitly set the excerpt (may be empty to clear it).
 		sets = append(sets, fmt.Sprintf("excerpt = $%d", argIdx))
 		args = append(args, *req.Excerpt)
+		argIdx++
+	} else if req.Content != nil {
+		// Content changed but no excerpt supplied: regenerate the excerpt from
+		// the new body so the feed preview stays in sync with the content.
+		sets = append(sets, fmt.Sprintf("excerpt = $%d", argIdx))
+		args = append(args, autoExcerpt(req.Content))
 		argIdx++
 	}
 	if req.CoverImageURL != nil {
 		sets = append(sets, fmt.Sprintf("cover_image_url = $%d", argIdx))
 		args = append(args, *req.CoverImageURL)
+		argIdx++
+	}
+	if req.Tags != nil {
+		tags := *req.Tags
+		if tags == nil {
+			tags = []string{}
+		}
+		tagsJSON, _ := json.Marshal(tags)
+		sets = append(sets, fmt.Sprintf("tags = $%d::jsonb", argIdx))
+		args = append(args, tagsJSON)
 		argIdx++
 	}
 	if req.IsPremium != nil {

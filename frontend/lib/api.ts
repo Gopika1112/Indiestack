@@ -43,6 +43,7 @@ export interface Post {
   title: string;
   content: Record<string, unknown>;
   excerpt: string;
+  tags?: string[];
   cover_image_url: string;
   reading_time_minutes: number;
   word_count: number;
@@ -217,6 +218,7 @@ export const postAPI = {
     title: string;
     content: Record<string, unknown>;
     excerpt?: string;
+    tags?: string[];
     cover_image_url?: string;
     is_premium?: boolean;
     slug?: string;
@@ -233,6 +235,7 @@ export const postAPI = {
       title: string;
       content: Record<string, unknown>;
       excerpt: string;
+      tags: string[];
       cover_image_url: string;
       is_premium: boolean;
       status: string;
@@ -264,6 +267,9 @@ export const feedAPI = {
 
   getLatest: (params?: { limit?: number; offset?: number }) =>
     fetchAPI<Post[]>(`/feed/latest?${buildParams(params)}`),
+
+  getByTag: (tag: string, params?: { limit?: number }) =>
+    fetchAPI<Post[]>(`/feed/by-tag?tag=${encodeURIComponent(tag)}&${buildParams(params)}`),
 };
 
 // API Key types
@@ -386,6 +392,26 @@ export const bookmarksAPI = {
     }),
 };
 
+// Reading History API
+export interface HistoryItem {
+  id: string;
+  post_id: string;
+  title: string;
+  slug: string;
+  author_username: string;
+  read_at: string;
+}
+
+export const historyAPI = {
+  list: () => fetchAPI<HistoryItem[]>("/history"),
+
+  record: (postId: string) =>
+    fetchAPI<{ status: string }>("/history", {
+      method: "POST",
+      body: JSON.stringify({ post_id: postId }),
+    }),
+};
+
 // Upload API
 export const uploadAPI = {
   upload: async (file: File): Promise<{ url: string; filename: string; size: string }> => {
@@ -410,4 +436,117 @@ export const uploadAPI = {
     }
     return data.data;
   },
+};
+
+// ---------- Settings API ----------
+
+export interface AccountSettings {
+  email: string;
+  username: string;
+  phone: string;
+  language: string;
+  timezone: string;
+}
+
+export interface PublicProfileSettings {
+  name?: string;
+  display_name?: string;
+  cover_image_url?: string;
+  short_bio?: string;
+  bio?: string;
+  website?: string;
+  github_url?: string;
+  linkedin_url?: string;
+  twitter_url?: string;
+  instagram_url?: string;
+  youtube_url?: string;
+  profile_visibility?: string;
+}
+
+export interface SecuritySettings {
+  two_factor_enabled: boolean;
+  recovery_email: string;
+}
+
+export interface SessionItem {
+  id: string;
+  user_agent: string;
+  ip: string;
+  device: string;
+  last_used_at: string;
+  created_at: string;
+}
+
+export interface ConnectedAccount {
+  provider: string;
+  provider_account_id: string;
+  connected_at: string;
+}
+
+export type Prefs = Record<string, boolean | string>;
+
+export const settingsAPI = {
+  // Account
+  getAccount: () => fetchAPI<AccountSettings>("/settings/account"),
+  updateAccount: (data: Partial<AccountSettings>) =>
+    fetchAPI<{ message: string }>("/settings/account", { method: "PUT", body: JSON.stringify(data) }),
+
+  // Public profile
+  getPublicProfile: () => fetchAPI<PublicProfileSettings>("/settings/public-profile"),
+  updatePublicProfile: (data: Partial<PublicProfileSettings>) =>
+    fetchAPI<{ message: string }>("/settings/public-profile", { method: "PUT", body: JSON.stringify(data) }),
+
+  // Security
+  getSecurity: () => fetchAPI<SecuritySettings>("/settings/security"),
+  updateSecurity: (data: Partial<SecuritySettings>) =>
+    fetchAPI<{ message: string }>("/settings/security", { method: "PUT", body: JSON.stringify(data) }),
+  changePassword: (current_password: string, new_password: string) =>
+    fetchAPI<{ message: string }>("/settings/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password, new_password }),
+    }),
+
+  // Sessions
+  listSessions: () => fetchAPI<SessionItem[]>("/settings/sessions"),
+  revokeSession: (id: string) =>
+    fetchAPI<{ message: string }>(`/settings/sessions/${id}`, { method: "DELETE" }),
+  revokeAllSessions: () =>
+    fetchAPI<{ message: string }>("/settings/sessions/revoke-all", { method: "POST" }),
+
+  // Generic preference groups
+  getNotifications: () => fetchAPI<Prefs>("/settings/notifications"),
+  updateNotifications: (data: Prefs) =>
+    fetchAPI<{ message: string }>("/settings/notifications", { method: "PUT", body: JSON.stringify(data) }),
+
+  getPrivacy: () => fetchAPI<Prefs>("/settings/privacy"),
+  updatePrivacy: (data: Prefs) =>
+    fetchAPI<{ message: string }>("/settings/privacy", { method: "PUT", body: JSON.stringify(data) }),
+
+  getWriting: () => fetchAPI<Prefs>("/settings/writing"),
+  updateWriting: (data: Prefs) =>
+    fetchAPI<{ message: string }>("/settings/writing", { method: "PUT", body: JSON.stringify(data) }),
+
+  getReading: () => fetchAPI<Prefs>("/settings/reading"),
+  updateReading: (data: Prefs) =>
+    fetchAPI<{ message: string }>("/settings/reading", { method: "PUT", body: JSON.stringify(data) }),
+
+  getEmail: () => fetchAPI<Prefs>("/settings/email"),
+  updateEmail: (data: Prefs) =>
+    fetchAPI<{ message: string }>("/settings/email", { method: "PUT", body: JSON.stringify(data) }),
+
+  // Connected accounts
+  listConnected: () => fetchAPI<ConnectedAccount[]>("/settings/connected-accounts"),
+  connectAccount: (provider: string, provider_account_id = "") =>
+    fetchAPI<{ message: string }>("/settings/connected-accounts", {
+      method: "POST",
+      body: JSON.stringify({ provider, provider_account_id }),
+    }),
+  disconnectAccount: (provider: string) =>
+    fetchAPI<{ message: string }>(`/settings/connected-accounts/${provider}`, { method: "DELETE" }),
+
+  // Danger zone
+  exportData: () => fetchAPI<unknown>("/settings/export-data"),
+  deleteAccount: () => fetchAPI<{ message: string }>("/settings/delete-account", { method: "DELETE" }),
+  deactivateAccount: () => fetchAPI<{ message: string }>("/settings/deactivate-account", { method: "POST" }),
+  removeAllStories: () => fetchAPI<{ message: string }>("/settings/remove-all-stories", { method: "POST" }),
 };

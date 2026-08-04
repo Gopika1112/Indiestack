@@ -13,12 +13,13 @@ import { Clock, Bookmark, Star } from "lucide-react";
 
 interface PostCardProps {
   post: Post;
+  initialSaved?: boolean;
 }
 
-export function PostCard({ post }: PostCardProps) {
+export function PostCard({ post, initialSaved = false }: PostCardProps) {
   const { isAuthenticated } = useAuthStore();
   const { toast } = useToast();
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState(initialSaved);
   const [saving, setSaving] = useState(false);
 
   const toggleBookmark = async (e: React.MouseEvent) => {

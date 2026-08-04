@@ -622,23 +622,29 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query("SELECT rh.id, rh.post_id, p.title, p.slug, rh.read_at FROM reading_history rh JOIN posts p ON rh.post_id=p.id WHERE rh.user_id=$1 ORDER BY rh.read_at DESC LIMIT 50", userID)
+		rows, err := db.Query(`SELECT rh.id, rh.post_id, p.title, p.slug, u.username, rh.read_at
+			FROM reading_history rh
+			JOIN posts p ON rh.post_id = p.id
+			JOIN users u ON p.author_id = u.id
+			WHERE rh.user_id = $1
+			ORDER BY rh.read_at DESC LIMIT 50`, userID)
 		if err != nil {
 			jsonError(w, 500, "db_error", err.Error())
 			return
 		}
 		defer rows.Close()
 		type HistoryItem struct {
-			ID     string    `json:"id"`
-			PostID string    `json:"post_id"`
-			Title  string    `json:"title"`
-			Slug   string    `json:"slug"`
-			ReadAt time.Time `json:"read_at"`
+			ID       string    `json:"id"`
+			PostID   string    `json:"post_id"`
+			Title    string    `json:"title"`
+			Slug     string    `json:"slug"`
+			Username string    `json:"author_username"`
+			ReadAt   time.Time `json:"read_at"`
 		}
 		var items []HistoryItem
 		for rows.Next() {
 			var h HistoryItem
-			if err := rows.Scan(&h.ID, &h.PostID, &h.Title, &h.Slug, &h.ReadAt); err != nil {
+			if err := rows.Scan(&h.ID, &h.PostID, &h.Title, &h.Slug, &h.Username, &h.ReadAt); err != nil {
 				continue
 			}
 			items = append(items, h)
@@ -658,7 +664,8 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 400, "bad_request", "post_id required")
 			return
 		}
-		if _, err := db.Exec("INSERT INTO reading_history (user_id, post_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", userID, input.PostID); err != nil {
+		if _, err := db.Exec(`INSERT INTO reading_history (user_id, post_id) VALUES ($1,$2)
+			ON CONFLICT (user_id, post_id) DO UPDATE SET read_at = NOW()`, userID, input.PostID); err != nil {
 			jsonError(w, 500, "db_error", err.Error())
 			return
 		}
@@ -677,7 +684,17 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := "%" + strings.ToLower(q) + "%"
-	rows, err := db.Query("SELECT id, slug, title, excerpt, author_id FROM posts WHERE status='published' AND (LOWER(title) LIKE $1 OR LOWER(excerpt) LIKE $1) ORDER BY published_at DESC LIMIT 20", query)
+	// Search title, excerpt, the TipTap body text, and tags (content/tags are stored
+	// as JSONB, so cast to text for a case-insensitive substring match).
+	rows, err := db.Query(`SELECT p.id, p.slug, p.title, COALESCE(p.excerpt,''), p.author_id, u.username
+		FROM posts p JOIN users u ON p.author_id = u.id
+		WHERE p.status='published' AND (
+			LOWER(p.title) LIKE $1 OR
+			LOWER(COALESCE(p.excerpt,'')) LIKE $1 OR
+			LOWER(p.content::text) LIKE $1 OR
+			LOWER(COALESCE(p.tags::text,'')) LIKE $1
+		)
+		ORDER BY p.published_at DESC LIMIT 20`, query)
 	if err != nil {
 		jsonError(w, 500, "db_error", err.Error())
 		return
@@ -689,11 +706,12 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 		Title    string `json:"title"`
 		Excerpt  string `json:"excerpt"`
 		AuthorID string `json:"author_id"`
+		Username string `json:"author_username"`
 	}
 	var results []SearchResult
 	for rows.Next() {
 		var s SearchResult
-		if err := rows.Scan(&s.ID, &s.Slug, &s.Title, &s.Excerpt, &s.AuthorID); err != nil {
+		if err := rows.Scan(&s.ID, &s.Slug, &s.Title, &s.Excerpt, &s.AuthorID, &s.Username); err != nil {
 			continue
 		}
 		results = append(results, s)
@@ -960,8 +978,9 @@ func handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	baseURL := getBaseURL()
-	avatarURL := fmt.Sprintf("%s/uploads/%s", baseURL, filename)
+	// Store a RELATIVE path so the browser resolves it against the current origin
+	// (Caddy proxies /uploads/* to this service).
+	avatarURL := fmt.Sprintf("/uploads/%s", filename)
 
 	if _, err := db.Exec("UPDATE users SET avatar_url = $1 WHERE id = $2", avatarURL, userID); err != nil {
 		jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update avatar")
@@ -969,7 +988,8 @@ func handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonSuccess(w, http.StatusOK, map[string]string{
-		"url": avatarURL,
+		"url":        avatarURL,
+		"avatar_url": avatarURL,
 	})
 }
 
