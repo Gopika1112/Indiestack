@@ -321,5 +321,3 @@ Contributions are welcome! Please read the pull request template and ensure CI p
 - [TimescaleDB](https://www.timescale.com/) — Time-series extension (planned)
 - [MeiliSearch](https://www.meilisearch.com/) — Search engine (planned)
 - [Caddy](https://caddyserver.com/) — Reverse proxy
-
-ias

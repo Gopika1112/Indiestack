@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -430,6 +431,7 @@ func main() {
 	mux.HandleFunc("/api/v1/feed/latest", latestFeedHandler)
 	mux.HandleFunc("/api/v1/feed/trending", trendingFeedHandler)
 	mux.HandleFunc("/api/v1/feed/by-tag", byTagFeedHandler)
+	mux.HandleFunc("/api/v1/tags", tagsHandler)
 	mux.HandleFunc("/api/v1/api-keys", apiKeysHandler)
 	mux.HandleFunc("/api/v1/api-keys/", apiKeysHandler)
 	mux.HandleFunc("/api/v1/posts/mine", listMyPostsHandler)
@@ -637,10 +639,51 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Record this login as an active session (powers the security page's
+	// session list, connected devices, and logout-from-all-devices).
+	createSession(user.ID, refreshToken, r)
+
 	jsonSuccess(w, http.StatusOK, map[string]interface{}{
 		"user":   user,
 		"tokens": AuthTokens{AccessToken: accessToken, RefreshToken: refreshToken, ExpiresAt: expiresAt, TokenType: "Bearer"},
 	})
+}
+
+// createSession inserts a session row for a freshly-issued refresh token.
+// The refresh token's SHA-256 hash is stored (never the raw token) as the
+// unique refresh_token_id so a session can be revoked without exposing tokens.
+func createSession(userID, refreshToken string, r *http.Request) {
+	sum := sha256.Sum256([]byte(refreshToken))
+	tokenID := hex.EncodeToString(sum[:])
+	ua := r.UserAgent()
+	ip := getClientIP(r)
+	device := deviceFromUA(ua)
+	if _, err := db.Exec(`INSERT INTO sessions (user_id, refresh_token_id, user_agent, ip, device)
+		VALUES ($1::uuid, $2, $3, $4, $5) ON CONFLICT (refresh_token_id) DO UPDATE SET last_used_at = NOW()`,
+		userID, tokenID, ua, ip, device); err != nil {
+		log.Printf("create session error: %v", err)
+	}
+}
+
+// deviceFromUA makes a rough human-readable device label from the User-Agent.
+func deviceFromUA(ua string) string {
+	l := strings.ToLower(ua)
+	switch {
+	case strings.Contains(l, "iphone"), strings.Contains(l, "android"):
+		return "Mobile"
+	case strings.Contains(l, "ipad"), strings.Contains(l, "tablet"):
+		return "Tablet"
+	case strings.Contains(l, "windows"):
+		return "Windows PC"
+	case strings.Contains(l, "mac os"), strings.Contains(l, "macintosh"):
+		return "Mac"
+	case strings.Contains(l, "linux"):
+		return "Linux"
+	case ua == "":
+		return "Unknown device"
+	default:
+		return "Desktop"
+	}
 }
 
 func meHandler(w http.ResponseWriter, r *http.Request) {
@@ -746,10 +789,20 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var user User
+	// LEFT JOIN profiles and prefer its non-empty values (COALESCE + NULLIF) so the
+	// public profile reflects edits saved via the profiles endpoint (which writes
+	// to the profiles table, not users).
 	err := db.QueryRow(
-		`SELECT id, email, username, display_name, bio, avatar_url, website, location,
-		 is_verified, is_premium, follower_count, following_count, created_at
-		 FROM users WHERE username = $1`, username,
+		`SELECT u.id, u.email, u.username,
+			COALESCE(NULLIF(p.name, ''), u.display_name),
+			COALESCE(NULLIF(p.bio, ''), u.bio),
+			u.avatar_url,
+			COALESCE(NULLIF(p.website, ''), u.website),
+			COALESCE(NULLIF(p.location, ''), u.location),
+			u.is_verified, u.is_premium, u.follower_count, u.following_count, u.created_at
+		 FROM users u
+		 LEFT JOIN profiles p ON p.user_id = u.id
+		 WHERE u.username = $1`, username,
 	).Scan(&user.ID, &user.Email, &user.Username, &user.DisplayName, &user.Bio, &user.AvatarURL,
 		&user.Website, &user.Location, &user.IsVerified, &user.IsPremium, &user.FollowerCount,
 		&user.FollowingCount, &user.CreatedAt)
@@ -785,6 +838,16 @@ func postsHandler(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.TrimPrefix(path, "slug/"), "/")
 		if len(parts) >= 2 {
 			getPostBySlug(w, parts[0], parts[1])
+			return
+		}
+	}
+
+	// GET /api/v1/posts/{id}/related — related posts (tags-first, then full-text)
+	if r.Method == http.MethodGet && strings.HasSuffix(path, "/related") {
+		postID := strings.TrimSuffix(path, "/related")
+		postID = strings.Trim(postID, "/")
+		if postID != "" && !strings.Contains(postID, "/") {
+			relatedPostsHandler(w, r, postID)
 			return
 		}
 	}
@@ -929,7 +992,9 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	contentJSON, _ := json.Marshal(req.Content)
-	wordCount := len(strings.Fields(string(contentJSON)))
+	// Count words in the extracted plain-text body (not the serialized JSON, which
+	// inflates the count with markup keys) for an accurate reading time.
+	wordCount := len(strings.Fields(extractTextFromTipTap(req.Content)))
 	readingTime := wordCount/200 + 1
 
 	// Use the author-supplied excerpt if present; otherwise auto-generate one
@@ -1160,6 +1225,76 @@ func byTagFeedHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	jsonSuccess(w, http.StatusOK, scanFeedPosts(rows))
+}
+
+// relatedPostsHandler returns posts related to the given post. Ranking:
+//  1. number of shared tags (strongest signal)
+//  2. tsvector full-text similarity (ts_rank) of the source post's title + tags
+//     queried against each candidate's full search_vector
+//
+// The current post and non-published posts are excluded.
+func relatedPostsHandler(w http.ResponseWriter, r *http.Request, postID string) {
+	rows, err := db.Query(`
+		WITH src AS (
+		  SELECT p.tags,
+		    (p.title || ' ' || coalesce((SELECT string_agg(value, ' ')
+		      FROM jsonb_array_elements_text(p.tags)), '')) AS query_text
+		  FROM posts p WHERE p.id::text = $1 AND p.status = 'published'
+		)
+		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+		 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
+		 p.published_at, p.view_count, p.like_count, p.is_premium
+		 FROM posts p
+		 JOIN users u ON p.author_id = u.id
+		 CROSS JOIN src
+		 WHERE p.status = 'published' AND p.id::text <> $1
+		 ORDER BY
+		   (SELECT COUNT(*) FROM jsonb_array_elements_text(p.tags) t
+		    WHERE t IN (SELECT value FROM jsonb_array_elements_text(src.tags))) DESC,
+		   ts_rank(p.search_vector, websearch_to_tsquery('english', src.query_text)) DESC,
+		   p.published_at DESC NULLS LAST
+		 LIMIT 6`, postID)
+	if err != nil {
+		log.Printf("related posts error: %v", err)
+		jsonSuccess(w, http.StatusOK, []Post{})
+		return
+	}
+	defer rows.Close()
+	jsonSuccess(w, http.StatusOK, scanFeedPosts(rows))
+}
+
+// tagsHandler returns the distinct set of tags used across published posts,
+// with counts, so the write page can suggest relevant tags.
+func tagsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+	rows, err := db.Query(`
+		SELECT value AS tag, COUNT(*) AS count
+		FROM posts, jsonb_array_elements_text(posts.tags)
+		WHERE posts.status = 'published'
+		GROUP BY value
+		ORDER BY count DESC, tag ASC
+		LIMIT 100`)
+	if err != nil {
+		log.Printf("tags list error: %v", err)
+		jsonSuccess(w, http.StatusOK, []map[string]interface{}{})
+		return
+	}
+	defer rows.Close()
+	type tagCount struct {
+		Tag   string `json:"tag"`
+		Count int    `json:"count"`
+	}
+	out := []tagCount{}
+	for rows.Next() {
+		var t tagCount
+		if err := rows.Scan(&t.Tag, &t.Count); err == nil {
+			out = append(out, t)
+		}
+	}
+	jsonSuccess(w, http.StatusOK, out)
 }
 
 // ============================================================
@@ -1423,7 +1558,7 @@ func updatePostHandler(w http.ResponseWriter, r *http.Request, postID string) {
 		sets = append(sets, fmt.Sprintf("content = $%d", argIdx))
 		args = append(args, contentJSON)
 		argIdx++
-		wordCount := len(strings.Fields(string(contentJSON)))
+		wordCount := len(strings.Fields(extractTextFromTipTap(req.Content)))
 		sets = append(sets, fmt.Sprintf("word_count = $%d", argIdx))
 		args = append(args, wordCount)
 		argIdx++

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { Post, bookmarksAPI } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { useToast } from "@/components/toast-provider";
@@ -21,6 +20,7 @@ export function PostCard({ post, initialSaved = false }: PostCardProps) {
   const { toast } = useToast();
   const [saved, setSaved] = useState(initialSaved);
   const [saving, setSaving] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   const toggleBookmark = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -99,16 +99,18 @@ export function PostCard({ post, initialSaved = false }: PostCardProps) {
             </div>
           </div>
 
-          {/* Thumbnail */}
-          {post.cover_image_url && (
+          {/* Thumbnail (hidden if the image fails to load). Uses a plain <img>
+              because cover images are served by the backend via Caddy at a
+              relative /uploads path, which next/image's optimizer can't reach. */}
+          {post.cover_image_url && !imgError && (
             <div className="relative w-28 h-28 flex-shrink-0 hidden sm:block rounded overflow-hidden">
-              <Image
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={post.cover_image_url}
                 alt={post.title}
-                fill
-                sizes="112px"
-                className="object-cover"
+                className="h-full w-full object-cover"
                 loading="lazy"
+                onError={() => setImgError(true)}
               />
             </div>
           )}

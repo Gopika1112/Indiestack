@@ -4,9 +4,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import { FloatingToolbar } from "@/components/post/floating-toolbar";
 import { PostActions } from "@/components/post/post-actions";
+import { RelatedPosts } from "@/components/post/related-posts";
 import { postAPI, userAPI, historyAPI, Post } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { useToast } from "@/components/toast-provider";
@@ -26,6 +26,7 @@ export default function PostPage() {
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(0);
+  const [coverError, setCoverError] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const { user, isAuthenticated } = useAuthStore();
@@ -152,7 +153,10 @@ export default function PostPage() {
       {/* Reading progress bar */}
       <div className="reading-progress" style={{ width: `${progress}%` }} />
 
-      <article className="container mx-auto px-4 py-12 max-w-[680px]">
+      <div className="container mx-auto px-4 py-12 max-w-[1200px]">
+        <div className="lg:flex lg:justify-center lg:gap-12">
+          {/* Main column — centered */}
+          <article className="max-w-[680px] w-full min-w-0">
         {/* Title */}
         <h1 className="text-3xl md:text-4xl lg:text-[42px] font-bold tracking-tight leading-tight mb-6">
           {post.title}
@@ -200,16 +204,17 @@ export default function PostPage() {
           </div>
         </div>
 
-        {/* Cover Image */}
-        {post.cover_image_url && (
+        {/* Cover Image (hidden if it fails to load). Plain <img> because the
+            cover is served by the backend via Caddy at a relative /uploads path
+            that next/image's optimizer can't reach. */}
+        {post.cover_image_url && !coverError && (
           <div className="relative aspect-video mb-10 rounded-lg overflow-hidden">
-            <Image
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               src={post.cover_image_url}
               alt={post.title}
-              fill
-              sizes="680px"
-              className="object-cover"
-              priority
+              className="absolute inset-0 h-full w-full object-cover"
+              onError={() => setCoverError(true)}
             />
           </div>
         )}
@@ -252,7 +257,18 @@ export default function PostPage() {
             <Button className="rounded-full px-5">Follow</Button>
           </div>
         </div>
-      </article>
+          </article>
+
+          {/* Related posts rail — sits in the free space to the right of the
+              centered content on desktop; stacked below on mobile */}
+          <aside className="mt-12 lg:mt-0 lg:w-[320px] lg:shrink-0">
+            <div className="lg:sticky lg:top-12 border-t lg:border-t-0 border-border pt-8 lg:pt-0">
+              <h3 className="text-base font-bold mb-5">Related posts</h3>
+              <RelatedPosts postId={post.id} />
+            </div>
+          </aside>
+        </div>
+      </div>
 
       {/* Floating toolbar */}
       <FloatingToolbar postId={post.id} likeCount={post.like_count} commentCount={post.comment_count} />

@@ -76,9 +76,34 @@ function buildParams(params?: Record<string, string | number | undefined>): stri
   ).toString();
 }
 
+// tryRefreshToken attempts to exchange the stored refresh token for a new
+// access token. Returns true and updates localStorage on success.
+async function tryRefreshToken(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  const refreshToken = localStorage.getItem("refresh_token");
+  if (!refreshToken) return false;
+  try {
+    const res = await fetch(`${API_URL}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.data?.access_token) return false;
+    localStorage.setItem("access_token", data.data.access_token);
+    if (data.data.refresh_token) {
+      localStorage.setItem("refresh_token", data.data.refresh_token);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function fetchAPI<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  isRetry = false
 ): Promise<APIResponse<T>> {
   const url = `${API_URL}${endpoint}`;
 
@@ -98,6 +123,14 @@ async function fetchAPI<T>(
     ...options,
     headers,
   });
+
+  // On 401 (expired access token), transparently refresh once and retry.
+  if (response.status === 401 && !isRetry && endpoint !== "/auth/refresh") {
+    const refreshed = await tryRefreshToken();
+    if (refreshed) {
+      return fetchAPI<T>(endpoint, options, true);
+    }
+  }
 
   const data = await response.json();
 
@@ -255,6 +288,18 @@ export const postAPI = {
     fetchAPI<Post[]>(`/users/${username}/posts?${buildParams(params)}`),
 
   getMyPosts: () => fetchAPI<Post[]>("/posts/mine"),
+
+  getRelated: (id: string) => fetchAPI<Post[]>(`/posts/${id}/related`),
+};
+
+// Tags API
+export interface TagCount {
+  tag: string;
+  count: number;
+}
+
+export const tagsAPI = {
+  list: () => fetchAPI<TagCount[]>("/tags"),
 };
 
 // Feed API

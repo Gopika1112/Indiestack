@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { postAPI, uploadAPI } from "@/lib/api";
+import { TagPicker } from "@/components/editor/tag-picker";
 import { useAuthStore } from "@/lib/auth-store";
 import { useToast } from "@/components/toast-provider";
 import { Loader2, ArrowLeft, X, ImagePlus, Upload } from "lucide-react";
@@ -34,7 +35,7 @@ function WritePageEditor() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [excerpt, setExcerpt] = useState("");
-  const [tagsInput, setTagsInput] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [coverImageUrl, setCoverImageUrl] = useState("");
   const [isPremium, setIsPremium] = useState(false);
   const [showCoverInput, setShowCoverInput] = useState(false);
@@ -56,7 +57,7 @@ function WritePageEditor() {
         if (p) {
           setTitle(p.title || "");
           setExcerpt(p.excerpt || "");
-          setTagsInput((p.tags || []).join(", "));
+          setTags(p.tags || []);
           setCoverImageUrl(p.cover_image_url || "");
           setIsPremium(!!p.is_premium);
           if (p.cover_image_url) setShowCoverInput(true);
@@ -77,14 +78,6 @@ function WritePageEditor() {
     }
     return null;
   }
-
-  // Parse the comma-separated tags input into a clean array.
-  const parseTags = (): string[] =>
-    tagsInput
-      .split(",")
-      .map((t) => t.trim())
-      .filter((t) => t.length > 0)
-      .slice(0, 5);
 
   if (draftLoading) {
     return (
@@ -133,7 +126,7 @@ function WritePageEditor() {
           title,
           content: JSON.parse(content || "{}") as Record<string, unknown>,
           excerpt,
-          tags: parseTags(),
+          tags,
           cover_image_url: coverImageUrl,
           is_premium: isPremium,
           status: "draft",
@@ -145,7 +138,7 @@ function WritePageEditor() {
           title,
           content: JSON.parse(content || "{}") as Record<string, unknown>,
           excerpt,
-          tags: parseTags(),
+          tags,
           cover_image_url: coverImageUrl,
           is_premium: isPremium,
           slug: generateSlug(),
@@ -173,7 +166,7 @@ function WritePageEditor() {
         title,
         content: JSON.parse(content || "{}") as Record<string, unknown>,
         excerpt,
-        tags: parseTags(),
+        tags,
         cover_image_url: coverImageUrl,
         is_premium: isPremium,
         status: "published",
@@ -360,14 +353,7 @@ function WritePageEditor() {
 
               <div>
                 <label className="text-sm font-medium mb-1.5 block">Tags</label>
-                <Input
-                  placeholder="Technology, Programming, AI (comma-separated, up to 5)"
-                  value={tagsInput}
-                  onChange={(e) => setTagsInput(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground mt-1.5">
-                  Tags help readers discover your story by topic.
-                </p>
+                <TagPicker value={tags} onChange={setTags} max={5} placeholder="Add a topic (e.g. Technology, AI)..." />
               </div>
 
               <div>
