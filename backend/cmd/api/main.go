@@ -338,16 +338,29 @@ func getClientIP(r *http.Request) string {
 }
 
 // --- CORS Middleware ---
+// corsOrigin is resolved once at startup (see main), not per request.
+var corsOrigin string
+
+// resolveCORSOrigin determines the allowed origin once and logs any warning a
+// single time, instead of spamming a warning on every API request.
+func resolveCORSOrigin() string {
+	origin := os.Getenv("ALLOWED_ORIGINS")
+	if origin == "" {
+		if os.Getenv("APP_ENV") == "production" {
+			origin = "https://indiestack.io"
+			log.Println("WARNING: ALLOWED_ORIGINS not set in production; defaulting to https://indiestack.io")
+		} else {
+			origin = "*"
+		}
+	}
+	return origin
+}
+
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := os.Getenv("ALLOWED_ORIGINS")
+		origin := corsOrigin
 		if origin == "" {
-			if os.Getenv("APP_ENV") == "production" {
-				origin = "https://indiestack.io"
-				log.Println("WARNING: ALLOWED_ORIGINS not set in production; defaulting to https://indiestack.io")
-			} else {
-				origin = "*"
-			}
+			origin = resolveCORSOrigin() // fallback if main() didn't set it (e.g. tests)
 		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -457,6 +470,16 @@ func main() {
 
 	registerPenmarkRoutes(mux)
 	registerSettingsRoutes(mux)
+
+	// JSON 404 for any unmatched /api/v1/* route, so API error responses are
+	// consistent (instead of Go's default plain-text "404 page not found").
+	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
+		jsonError(w, http.StatusNotFound, "NOT_FOUND", "Not found")
+	})
+
+	// Resolve the CORS origin once at startup (logs the production warning a
+	// single time instead of on every request).
+	corsOrigin = resolveCORSOrigin()
 
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
@@ -822,7 +845,7 @@ func userPostsHandler(w http.ResponseWriter, r *http.Request, username string) {
 	rows, err := db.Query(`
 		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 		 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
-		 p.published_at, p.view_count, p.like_count, p.is_premium
+		 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
 		 FROM posts p JOIN users u ON p.author_id = u.id
 		 WHERE u.username = $1 AND p.status = 'published'
 		 ORDER BY p.published_at DESC NULLS LAST
@@ -880,22 +903,29 @@ func postsHandler(w http.ResponseWriter, r *http.Request) {
 func getPostBySlug(w http.ResponseWriter, r *http.Request, username, slug string) {
 	var post Post
 	var authorName, authorAvatar string
+	var tagsJSON []byte
 	err := db.QueryRow(`
 		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
-		 p.slug, p.title, p.content, p.excerpt, p.cover_image_url, p.reading_time_minutes,
+		 p.slug, p.title, p.content, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
 		 p.word_count, p.status, p.published_at, p.view_count, p.like_count, p.comment_count,
 		 p.is_premium, p.created_at, p.repost_count, p.updated_at
 		 FROM posts p JOIN users u ON p.author_id = u.id
 		 WHERE u.username = $1 AND p.slug = $2 AND p.status = 'published'`,
 		username, slug,
 	).Scan(&post.ID, &post.AuthorID, &post.AuthorUsername, &authorName, &authorAvatar,
-		&post.Slug, &post.Title, &post.Content, &post.Excerpt, &post.CoverImageURL,
+		&post.Slug, &post.Title, &post.Content, &post.Excerpt, &tagsJSON, &post.CoverImageURL,
 		&post.ReadingTimeMinutes, &post.WordCount, &post.Status, &post.PublishedAt,
 		&post.ViewCount, &post.LikeCount, &post.CommentCount, &post.IsPremium, &post.CreatedAt,
 		&post.RepostCount, &post.UpdatedAt)
 	if err != nil {
 		jsonError(w, http.StatusNotFound, "NOT_FOUND", "Post not found")
 		return
+	}
+	if len(tagsJSON) > 0 {
+		_ = json.Unmarshal(tagsJSON, &post.Tags)
+	}
+	if post.Tags == nil {
+		post.Tags = []string{}
 	}
 	post.AuthorName = authorName
 	post.AuthorAvatar = authorAvatar
@@ -1098,7 +1128,7 @@ func scanFeedPosts(rows *sql.Rows) []Post {
 		var tagsJSON []byte
 		if err := rows.Scan(&post.ID, &post.AuthorID, &post.AuthorUsername, &post.AuthorName, &post.AuthorAvatar,
 			&post.Slug, &post.Title, &post.Excerpt, &tagsJSON, &post.CoverImageURL, &post.ReadingTimeMinutes,
-			&post.PublishedAt, &post.ViewCount, &post.LikeCount, &post.IsPremium); err != nil {
+			&post.PublishedAt, &post.ViewCount, &post.LikeCount, &post.IsPremium, &post.Status, &post.CreatedAt); err != nil {
 			log.Printf("Scan feed post error: %v", err)
 			continue
 		}
@@ -1148,7 +1178,7 @@ func latestFeedHandler(w http.ResponseWriter, r *http.Request) {
 		baseQuery = `
 			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
-			 p.published_at, p.view_count, p.like_count, p.is_premium
+			 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
 			 FROM posts p JOIN users u ON p.author_id = u.id
 			 WHERE p.status = 'published' AND u.id != ANY($1::uuid[])
 			 ORDER BY p.published_at DESC NULLS LAST
@@ -1164,7 +1194,7 @@ func latestFeedHandler(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(`
 			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
-			 p.published_at, p.view_count, p.like_count, p.is_premium
+			 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
 			 FROM posts p JOIN users u ON p.author_id = u.id
 			 WHERE p.status = 'published'
 			 ORDER BY p.published_at DESC NULLS LAST
@@ -1201,7 +1231,7 @@ func trendingFeedHandler(w http.ResponseWriter, r *http.Request) {
 		baseQuery = `
 			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
-			 p.published_at, p.view_count, p.like_count, p.is_premium
+			 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
 			 FROM posts p JOIN users u ON p.author_id = u.id
 			 WHERE p.status = 'published' AND u.id != ALL($1::uuid[])
 			 ORDER BY (p.like_count + p.comment_count * 2 + p.repost_count * 3) DESC NULLS FIRST, p.published_at DESC NULLS LAST
@@ -1217,7 +1247,7 @@ func trendingFeedHandler(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(`
 			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
-			 p.published_at, p.view_count, p.like_count, p.is_premium
+			 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
 			 FROM posts p JOIN users u ON p.author_id = u.id
 			 WHERE p.status = 'published'
 			 ORDER BY (p.like_count + p.comment_count * 2 + p.repost_count * 3) DESC NULLS FIRST, p.published_at DESC NULLS LAST
@@ -1244,7 +1274,7 @@ func byTagFeedHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
 		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 		 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
-		 p.published_at, p.view_count, p.like_count, p.is_premium
+		 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
 		 FROM posts p JOIN users u ON p.author_id = u.id
 		 WHERE p.status = 'published'
 		   AND EXISTS (
@@ -1278,7 +1308,7 @@ func relatedPostsHandler(w http.ResponseWriter, r *http.Request, postID string) 
 		)
 		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 		 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
-		 p.published_at, p.view_count, p.like_count, p.is_premium
+		 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
 		 FROM posts p
 		 JOIN users u ON p.author_id = u.id
 		 CROSS JOIN src
@@ -1347,7 +1377,7 @@ func trendingPostsHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
 		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 		 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
-		 p.published_at, p.view_count, p.like_count, p.is_premium
+		 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
 		 FROM post_views pv
 		 JOIN posts p ON p.id = pv.post_id
 		 JOIN users u ON p.author_id = u.id
@@ -1362,6 +1392,24 @@ func trendingPostsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	posts := scanFeedPosts(rows)
 	rows.Close()
+
+	// Fallback: if the event log has no recent views yet, order by engagement
+	// (likes + comments) then recency so the panel never renders empty.
+	if len(posts) == 0 {
+		fallback, err := db.Query(`
+			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
+			 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
+			 FROM posts p JOIN users u ON p.author_id = u.id
+			 WHERE p.status = 'published'
+			 ORDER BY (p.like_count + p.comment_count * 2 + p.repost_count * 3) DESC NULLS LAST,
+			          p.published_at DESC NULLS LAST
+			 LIMIT 10`)
+		if err == nil {
+			posts = scanFeedPosts(fallback)
+			fallback.Close()
+		}
+	}
 	jsonSuccess(w, http.StatusOK, posts)
 }
 
@@ -1497,7 +1545,7 @@ func followingTopicsFeedHandler(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(`
 			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
-			 p.published_at, p.view_count, p.like_count, p.is_premium
+			 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
 			 FROM posts p JOIN users u ON p.author_id = u.id
 			 WHERE p.status = 'published'
 			   AND EXISTS (
@@ -1517,7 +1565,7 @@ func followingTopicsFeedHandler(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(`
 			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
-			 p.published_at, p.view_count, p.like_count, p.is_premium
+			 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
 			 FROM posts p JOIN users u ON p.author_id = u.id
 			 WHERE p.status = 'published'
 			 ORDER BY p.published_at DESC NULLS LAST

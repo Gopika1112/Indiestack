@@ -15,6 +15,9 @@ import (
 // registerSettingsRoutes wires all settings-related endpoints into the mux.
 func registerSettingsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/settings/account", accountSettingsHandler)
+	// Alias: /settings/profile serves the same account settings (some clients expect
+	// this route; it previously 404'd — see issue report).
+	mux.HandleFunc("/api/v1/settings/profile", accountSettingsHandler)
 	mux.HandleFunc("/api/v1/settings/public-profile", publicProfileSettingsHandler)
 	mux.HandleFunc("/api/v1/settings/security", securitySettingsHandler)
 	mux.HandleFunc("/api/v1/settings/notifications", notificationPrefsHandler)

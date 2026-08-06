@@ -7,7 +7,6 @@ import { PostCard } from "@/components/feed/post-card";
 import { Footer } from "@/components/footer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBookmarkedIds } from "@/lib/use-bookmarks";
-import { useSidebarStore } from "@/lib/sidebar-store";
 import { useAuthStore } from "@/lib/auth-store";
 import { TrendingPostsRail } from "@/components/feed/trending-posts-rail";
 import { TrendingTopicsRail } from "@/components/feed/trending-topics-rail";
@@ -27,7 +26,6 @@ export default function FeedPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>("for-you");
   const bookmarkedIds = useBookmarkedIds();
-  const { collapsed } = useSidebarStore();
   const { isAuthenticated } = useAuthStore();
 
   useEffect(() => {
@@ -63,20 +61,17 @@ export default function FeedPage() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <div className="container mx-auto px-4 py-6 max-w-[1200px] flex-1 w-full">
-        <div className="xl:flex xl:gap-10">
-          {/* Left rail: trending posts — only when the app sidebar is collapsed,
-              so it fills the freed-up left whitespace without cluttering. */}
-          {collapsed && (
-            <aside className="hidden xl:block xl:w-[260px] xl:shrink-0">
-              <div className="xl:sticky xl:top-6 border-r border-border xl:pr-6">
-                <TrendingPostsRail />
-              </div>
-            </aside>
-          )}
+      <div className="mx-auto px-6 py-6 max-w-[1600px] flex-1 w-full">
+        <div className="xl:flex xl:gap-10 xl:justify-between">
+          {/* Left rail: trending posts — always visible on desktop. */}
+          <aside className="hidden xl:block xl:w-[260px] xl:shrink-0">
+            <div className="xl:sticky xl:top-6 border-r border-border xl:pr-6">
+              <TrendingPostsRail />
+            </div>
+          </aside>
 
-          {/* Center column: the feed */}
-          <div className="flex-1 min-w-0 max-w-[680px] mx-auto xl:mx-0 w-full">
+          {/* Center column: the feed (kept at reading width, centered between the rails) */}
+          <div className="min-w-0 w-full max-w-[680px] mx-auto">
         {/* Underline Tabs */}
         <div className="flex gap-0 border-b border-border mb-6">
           {TABS.map((tab) => (
