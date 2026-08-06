@@ -315,6 +315,29 @@ export const feedAPI = {
 
   getByTag: (tag: string, params?: { limit?: number }) =>
     fetchAPI<Post[]>(`/feed/by-tag?tag=${encodeURIComponent(tag)}&${buildParams(params)}`),
+
+  getTrendingPosts: () => fetchAPI<Post[]>("/feed/trending-posts"),
+
+  getTrendingTopics: () => fetchAPI<TagCount[]>("/feed/trending-topics"),
+
+  getFollowingTopicsFeed: () => fetchAPI<Post[]>("/feed/following-topics"),
+};
+
+// Topics (follow/unfollow topics)
+export const topicsAPI = {
+  follow: (tag: string) =>
+    fetchAPI<{ status: string; tag: string }>("/topics/follow", {
+      method: "POST",
+      body: JSON.stringify({ tag }),
+    }),
+
+  unfollow: (tag: string) =>
+    fetchAPI<{ status: string; tag: string }>("/topics/follow", {
+      method: "DELETE",
+      body: JSON.stringify({ tag }),
+    }),
+
+  listFollowed: () => fetchAPI<string[]>("/topics/following"),
 };
 
 // API Key types

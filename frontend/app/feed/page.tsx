@@ -7,6 +7,10 @@ import { PostCard } from "@/components/feed/post-card";
 import { Footer } from "@/components/footer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBookmarkedIds } from "@/lib/use-bookmarks";
+import { useSidebarStore } from "@/lib/sidebar-store";
+import { useAuthStore } from "@/lib/auth-store";
+import { TrendingPostsRail } from "@/components/feed/trending-posts-rail";
+import { TrendingTopicsRail } from "@/components/feed/trending-topics-rail";
 import { PenLine, Compass } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -23,6 +27,8 @@ export default function FeedPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>("for-you");
   const bookmarkedIds = useBookmarkedIds();
+  const { collapsed } = useSidebarStore();
+  const { isAuthenticated } = useAuthStore();
 
   useEffect(() => {
     const loadPosts = async () => {
@@ -30,7 +36,11 @@ export default function FeedPage() {
       try {
         let response;
         if (activeTab === "for-you") {
-          response = await feedAPI.getFeed({ limit: 20 });
+          // "For You" shows posts from followed topics (falls back to all posts
+          // when the user follows nothing or there's no match).
+          response = isAuthenticated
+            ? await feedAPI.getFollowingTopicsFeed()
+            : await feedAPI.getFeed({ limit: 20 });
         } else if (activeTab === "trending") {
           response = await feedAPI.getTrending({ limit: 20 });
         } else {
@@ -49,11 +59,24 @@ export default function FeedPage() {
 
     loadPosts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
+  }, [activeTab, isAuthenticated]);
 
   return (
     <div className="flex flex-col min-h-screen">
-      <div className="container mx-auto px-4 py-6 max-w-[680px] flex-1 w-full">
+      <div className="container mx-auto px-4 py-6 max-w-[1200px] flex-1 w-full">
+        <div className="xl:flex xl:gap-10">
+          {/* Left rail: trending posts — only when the app sidebar is collapsed,
+              so it fills the freed-up left whitespace without cluttering. */}
+          {collapsed && (
+            <aside className="hidden xl:block xl:w-[260px] xl:shrink-0">
+              <div className="xl:sticky xl:top-6 border-r border-border xl:pr-6">
+                <TrendingPostsRail />
+              </div>
+            </aside>
+          )}
+
+          {/* Center column: the feed */}
+          <div className="flex-1 min-w-0 max-w-[680px] mx-auto xl:mx-0 w-full">
         {/* Underline Tabs */}
         <div className="flex gap-0 border-b border-border mb-6">
           {TABS.map((tab) => (
@@ -116,6 +139,15 @@ export default function FeedPage() {
             </div>
           </div>
         )}
+          </div>
+
+          {/* Right rail: trending topics (always visible on desktop) */}
+          <aside className="hidden xl:block xl:w-[280px] xl:shrink-0">
+            <div className="xl:sticky xl:top-6 border-l border-border xl:pl-6">
+              <TrendingTopicsRail />
+            </div>
+          </aside>
+        </div>
       </div>
 
       <Footer />

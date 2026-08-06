@@ -6,6 +6,7 @@ import { PostCard } from "@/components/feed/post-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useBookmarkedIds } from "@/lib/use-bookmarks";
+import { TopicFollowButton } from "@/components/feed/topic-follow-button";
 import { Search, Flame } from "lucide-react";
 
 const TOPICS = [
@@ -72,19 +73,24 @@ export default function DiscoverPage() {
         />
       </div>
 
-      {/* Topic chips */}
+      {/* Topic chips (with follow toggles) */}
       <div className="flex flex-wrap gap-2 mb-8">
         {TOPICS.map((topic) => (
-          <button
+          <span
             key={topic}
-            onClick={() => setSelectedTopic(selectedTopic === topic ? null : topic)}
-            className={`px-3.5 py-1.5 text-sm rounded-full border transition-colors ${selectedTopic === topic
+            className={`inline-flex items-center gap-2 pl-3.5 pr-2.5 py-1.5 text-sm rounded-full border transition-colors ${selectedTopic === topic
               ? "bg-foreground text-background border-foreground"
               : "bg-transparent text-muted-foreground border-border hover:border-foreground/30 hover:text-foreground"
               }`}
           >
-            {topic}
-          </button>
+            <button
+              onClick={() => setSelectedTopic(selectedTopic === topic ? null : topic)}
+              className="font-medium"
+            >
+              {topic}
+            </button>
+            <TopicFollowButton tag={topic} />
+          </span>
         ))}
       </div>
 

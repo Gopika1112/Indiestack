@@ -153,14 +153,29 @@ export default function PostPage() {
       {/* Reading progress bar */}
       <div className="reading-progress" style={{ width: `${progress}%` }} />
 
-      <div className="container mx-auto px-4 py-12 max-w-[1200px]">
-        <div className="lg:flex lg:justify-center lg:gap-12">
-          {/* Main column — centered */}
-          <article className="max-w-[680px] w-full min-w-0">
-        {/* Title */}
-        <h1 className="text-3xl md:text-4xl lg:text-[42px] font-bold tracking-tight leading-tight mb-6">
-          {post.title}
-        </h1>
+      <div className="container mx-auto px-4 py-12">
+        {/* Content is centered on screen (max-w + mx-auto). The related rail is
+            pinned to the right edge of the viewport on large screens. */}
+        <article className="max-w-[680px] mx-auto min-w-0">
+        {/* Title row: small cover thumbnail beside the title */}
+        <div className="flex items-start gap-5 mb-6">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-3xl md:text-4xl lg:text-[42px] font-bold tracking-tight leading-tight">
+              {post.title}
+            </h1>
+          </div>
+          {post.cover_image_url && !coverError && (
+            <div className="relative w-24 h-24 md:w-28 md:h-28 shrink-0 rounded-lg overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={post.cover_image_url}
+                alt={post.title}
+                className="absolute inset-0 h-full w-full object-cover"
+                onError={() => setCoverError(true)}
+              />
+            </div>
+          )}
+        </div>
 
         {/* Author */}
         <div className="flex items-center gap-3 mb-10">
@@ -204,21 +219,6 @@ export default function PostPage() {
           </div>
         </div>
 
-        {/* Cover Image (hidden if it fails to load). Plain <img> because the
-            cover is served by the backend via Caddy at a relative /uploads path
-            that next/image's optimizer can't reach. */}
-        {post.cover_image_url && !coverError && (
-          <div className="relative aspect-video mb-10 rounded-lg overflow-hidden">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={post.cover_image_url}
-              alt={post.title}
-              className="absolute inset-0 h-full w-full object-cover"
-              onError={() => setCoverError(true)}
-            />
-          </div>
-        )}
-
         {/* Content */}
         <div className="prose prose-lg max-w-none mb-10">
           {post.content && (
@@ -259,15 +259,15 @@ export default function PostPage() {
         </div>
           </article>
 
-          {/* Related posts rail — sits in the free space to the right of the
-              centered content on desktop; stacked below on mobile */}
-          <aside className="mt-12 lg:mt-0 lg:w-[320px] lg:shrink-0">
-            <div className="lg:sticky lg:top-12 border-t lg:border-t-0 border-border pt-8 lg:pt-0">
+          {/* Related posts rail — pinned to the right edge of the screen on wide
+              viewports (xl+), occupying the margin beside the centered 680px
+              content; stacked below the content on smaller screens */}
+          <aside className="mt-12 xl:mt-0 xl:fixed xl:top-24 xl:right-4 xl:w-[280px]">
+            <div className="border-t xl:border-t-0 border-border pt-8 xl:pt-0">
               <h3 className="text-base font-bold mb-5">Related posts</h3>
               <RelatedPosts postId={post.id} />
             </div>
           </aside>
-        </div>
       </div>
 
       {/* Floating toolbar */}

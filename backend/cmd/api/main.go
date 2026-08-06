@@ -431,6 +431,11 @@ func main() {
 	mux.HandleFunc("/api/v1/feed/latest", latestFeedHandler)
 	mux.HandleFunc("/api/v1/feed/trending", trendingFeedHandler)
 	mux.HandleFunc("/api/v1/feed/by-tag", byTagFeedHandler)
+	mux.HandleFunc("/api/v1/feed/trending-posts", trendingPostsHandler)
+	mux.HandleFunc("/api/v1/feed/trending-topics", trendingTopicsHandler)
+	mux.HandleFunc("/api/v1/feed/following-topics", followingTopicsFeedHandler)
+	mux.HandleFunc("/api/v1/topics/follow", topicFollowHandler)
+	mux.HandleFunc("/api/v1/topics/following", followedTopicsHandler)
 	mux.HandleFunc("/api/v1/tags", tagsHandler)
 	mux.HandleFunc("/api/v1/api-keys", apiKeysHandler)
 	mux.HandleFunc("/api/v1/api-keys/", apiKeysHandler)
@@ -837,7 +842,7 @@ func postsHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(path, "slug/") {
 		parts := strings.Split(strings.TrimPrefix(path, "slug/"), "/")
 		if len(parts) >= 2 {
-			getPostBySlug(w, parts[0], parts[1])
+			getPostBySlug(w, r, parts[0], parts[1])
 			return
 		}
 	}
@@ -872,7 +877,7 @@ func postsHandler(w http.ResponseWriter, r *http.Request) {
 	jsonError(w, http.StatusNotFound, "NOT_FOUND", "Not found")
 }
 
-func getPostBySlug(w http.ResponseWriter, username, slug string) {
+func getPostBySlug(w http.ResponseWriter, r *http.Request, username, slug string) {
 	var post Post
 	var authorName, authorAvatar string
 	err := db.QueryRow(`
@@ -894,7 +899,37 @@ func getPostBySlug(w http.ResponseWriter, username, slug string) {
 	}
 	post.AuthorName = authorName
 	post.AuthorAvatar = authorAvatar
+
+	// Log this view for the trending system (one view per reader per post per hour,
+	// to avoid inflated numbers). userID may be empty for anonymous readers.
+	viewerID, _ := extractUserID(r)
+	logPostView(post.ID, viewerID)
+
 	jsonSuccess(w, http.StatusOK, post)
+}
+
+// logPostView records a post view in post_views, guarding against inflated
+// counts: it only inserts if this reader (or an anonymous reader) hasn't viewed
+// the same post within the last hour.
+func logPostView(postID, userID string) {
+	var uid interface{}
+	if userID == "" {
+		uid = nil // anonymous
+	} else {
+		uid = userID
+	}
+	_, err := db.Exec(`
+		INSERT INTO post_views (post_id, user_id, viewed_at)
+		SELECT $1::uuid, $2, now()
+		WHERE NOT EXISTS (
+		  SELECT 1 FROM post_views
+		  WHERE post_id = $1::uuid
+		    AND (($2::uuid IS NOT NULL AND user_id = $2::uuid) OR ($2::uuid IS NULL AND user_id IS NULL))
+		    AND viewed_at > now() - interval '1 hour'
+		)`, postID, uid)
+	if err != nil {
+		log.Printf("log post view error: %v", err)
+	}
 }
 
 // excerptMaxLen is the target length for an auto-generated excerpt.
@@ -1295,6 +1330,206 @@ func tagsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	jsonSuccess(w, http.StatusOK, out)
+}
+
+// ============================================================
+// TRENDING + TOPIC FOLLOW HANDLERS
+// ============================================================
+
+// trendingPostsHandler returns the most-viewed posts in the last 24 hours,
+// based on the post_views event log. Falls back to the all-time trending feed
+// when there are too few recent views (keeps the panel from going empty).
+func trendingPostsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+	rows, err := db.Query(`
+		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+		 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
+		 p.published_at, p.view_count, p.like_count, p.is_premium
+		 FROM post_views pv
+		 JOIN posts p ON p.id = pv.post_id
+		 JOIN users u ON p.author_id = u.id
+		 WHERE pv.viewed_at > now() - interval '24 hours' AND p.status = 'published'
+		 GROUP BY p.id, u.username, u.display_name, u.avatar_url
+		 ORDER BY COUNT(*) DESC, MAX(pv.viewed_at) DESC
+		 LIMIT 10`)
+	if err != nil {
+		log.Printf("trending posts error: %v", err)
+		jsonSuccess(w, http.StatusOK, []Post{})
+		return
+	}
+	posts := scanFeedPosts(rows)
+	rows.Close()
+	jsonSuccess(w, http.StatusOK, posts)
+}
+
+// trendingTopicsHandler returns the hottest tags by recent views (last 24h),
+// falling back to tag usage count when there's little view data.
+func trendingTopicsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+	rows, err := db.Query(`
+		SELECT tag, COUNT(*) AS recent_views
+		 FROM post_views pv
+		 JOIN posts p ON p.id = pv.post_id,
+		 jsonb_array_elements_text(p.tags) AS tag
+		 WHERE pv.viewed_at > now() - interval '24 hours' AND p.status = 'published'
+		 GROUP BY tag
+		 ORDER BY recent_views DESC, tag ASC
+		 LIMIT 10`)
+	if err != nil {
+		log.Printf("trending topics error: %v", err)
+	}
+	type topicCount struct {
+		Tag   string `json:"tag"`
+		Count int    `json:"count"`
+	}
+	out := []topicCount{}
+	if err == nil {
+		for rows.Next() {
+			var t topicCount
+			if err := rows.Scan(&t.Tag, &t.Count); err == nil {
+				out = append(out, t)
+			}
+		}
+		rows.Close()
+	}
+	// Fallback: if no recent view data, surface the most-used tags overall.
+	if len(out) == 0 {
+		rows2, err2 := db.Query(`
+			SELECT value AS tag, COUNT(*) AS count
+			 FROM posts, jsonb_array_elements_text(posts.tags)
+			 WHERE posts.status = 'published'
+			 GROUP BY value ORDER BY count DESC, tag ASC LIMIT 10`)
+		if err2 == nil {
+			for rows2.Next() {
+				var t topicCount
+				if err := rows2.Scan(&t.Tag, &t.Count); err == nil {
+					out = append(out, t)
+				}
+			}
+			rows2.Close()
+		}
+	}
+	jsonSuccess(w, http.StatusOK, out)
+}
+
+// topicFollowHandler follows (POST) or unfollows (DELETE) a topic tag for the user.
+func topicFollowHandler(w http.ResponseWriter, r *http.Request) {
+	userID, err := extractUserID(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
+		return
+	}
+	var req struct {
+		Tag string `json:"tag"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+		return
+	}
+	tag := strings.TrimSpace(req.Tag)
+	if tag == "" {
+		jsonError(w, http.StatusBadRequest, "VALIDATION_ERROR", "tag required")
+		return
+	}
+	switch r.Method {
+	case http.MethodPost:
+		if _, err := db.Exec(`INSERT INTO topic_follows (user_id, tag) VALUES ($1::uuid, $2) ON CONFLICT (user_id, tag) DO NOTHING`, userID, tag); err != nil {
+			jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to follow topic")
+			return
+		}
+		jsonSuccess(w, http.StatusOK, map[string]string{"status": "following", "tag": tag})
+	case http.MethodDelete:
+		if _, err := db.Exec(`DELETE FROM topic_follows WHERE user_id::text=$1 AND tag=$2`, userID, tag); err != nil {
+			jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to unfollow topic")
+			return
+		}
+		jsonSuccess(w, http.StatusOK, map[string]string{"status": "unfollowed", "tag": tag})
+	default:
+		jsonError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+	}
+}
+
+// followedTopicsHandler lists the tags the current user follows.
+func followedTopicsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+	userID, err := extractUserID(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
+		return
+	}
+	rows, err := db.Query(`SELECT tag FROM topic_follows WHERE user_id::text=$1 ORDER BY tag ASC`, userID)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to load followed topics")
+		return
+	}
+	defer rows.Close()
+	tags := []string{}
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err == nil {
+			tags = append(tags, t)
+		}
+	}
+	jsonSuccess(w, http.StatusOK, tags)
+}
+
+// followingTopicsFeedHandler returns published posts whose tags intersect the
+// user's followed topics. If the user follows nothing OR there are no matching
+// posts, it falls back to the latest posts from all topics.
+func followingTopicsFeedHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+	userID, _ := extractUserID(r)
+
+	var posts []Post
+	if userID != "" {
+		rows, err := db.Query(`
+			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
+			 p.published_at, p.view_count, p.like_count, p.is_premium
+			 FROM posts p JOIN users u ON p.author_id = u.id
+			 WHERE p.status = 'published'
+			   AND EXISTS (
+			     SELECT 1 FROM jsonb_array_elements_text(p.tags) t
+			     WHERE t IN (SELECT tag FROM topic_follows WHERE user_id::text = $1)
+			   )
+			 ORDER BY p.published_at DESC NULLS LAST
+			 LIMIT 50`, userID)
+		if err == nil {
+			posts = scanFeedPosts(rows)
+			rows.Close()
+		}
+	}
+
+	// Fallback: no followed topics or no matching posts -> latest from all topics.
+	if len(posts) == 0 {
+		rows, err := db.Query(`
+			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
+			 p.published_at, p.view_count, p.like_count, p.is_premium
+			 FROM posts p JOIN users u ON p.author_id = u.id
+			 WHERE p.status = 'published'
+			 ORDER BY p.published_at DESC NULLS LAST
+			 LIMIT 50`)
+		if err != nil {
+			jsonSuccess(w, http.StatusOK, []Post{})
+			return
+		}
+		posts = scanFeedPosts(rows)
+		rows.Close()
+	}
+	jsonSuccess(w, http.StatusOK, posts)
 }
 
 // ============================================================

@@ -4,6 +4,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { tagsAPI } from "@/lib/api";
 import { X } from "lucide-react";
 
+// Default topics shown even before any post has been tagged, so the picker is
+// never empty. These match the discover-page categories.
+const DEFAULT_TOPICS = [
+  "Technology",
+  "Programming",
+  "Design",
+  "Writing",
+  "Science",
+  "Productivity",
+  "Startups",
+  "AI",
+];
+
 // TagPicker lets the author pick from existing tags (with usage counts) as well
 // as create new free-text tags. Value is the array of selected tags.
 export function TagPicker({
@@ -18,7 +31,7 @@ export function TagPicker({
   placeholder?: string;
 }) {
   const [input, setInput] = useState("");
-  const [allTags, setAllTags] = useState<string[]>([]);
+  const [dbTags, setDbTags] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -26,8 +39,8 @@ export function TagPicker({
   useEffect(() => {
     tagsAPI
       .list()
-      .then((res) => setAllTags((res.data || []).map((t) => t.tag)))
-      .catch(() => setAllTags([]));
+      .then((res) => setDbTags((res.data || []).map((t) => t.tag)))
+      .catch(() => setDbTags([]));
   }, []);
 
   // Close the suggestion dropdown when clicking outside.
@@ -40,6 +53,13 @@ export function TagPicker({
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
+
+  // Merge DB tags with the default topics (DB first, then defaults not already present).
+  const allTags = useMemo(() => {
+    const set = new Set<string>(dbTags);
+    DEFAULT_TOPICS.forEach((t) => set.add(t));
+    return Array.from(set);
+  }, [dbTags]);
 
   const suggestions = useMemo(() => {
     const q = input.trim().toLowerCase();
@@ -114,7 +134,7 @@ export function TagPicker({
       </div>
 
       {open && suggestions.length > 0 && (
-        <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-popover shadow-md overflow-hidden">
+        <div className="absolute z-[60] mt-1 w-full rounded-md border border-border bg-popover shadow-md overflow-hidden">
           {suggestions.map((s) => (
             <button
               key={s}
