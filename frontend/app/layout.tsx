@@ -4,6 +4,7 @@ import "./globals.css";
 import { Providers } from "@/components/providers";
 import { Sidebar } from "@/components/sidebar";
 import { MainWrapper } from "@/components/main-wrapper";
+import { AppRails } from "@/components/app-rails";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -44,6 +45,7 @@ export default function RootLayout({
           <div className="flex min-h-screen">
             <Sidebar />
             <MainWrapper>{children}</MainWrapper>
+            <AppRails />
           </div>
         </Providers>
       </body>

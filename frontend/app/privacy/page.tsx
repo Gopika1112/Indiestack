@@ -1,4 +1,3 @@
-import { Footer } from "@/components/footer";
 
 const SECTIONS = [
   {
@@ -60,7 +59,6 @@ export default function PrivacyPage() {
           ))}
         </div>
       </main>
-      <Footer />
     </div>
   );
 }

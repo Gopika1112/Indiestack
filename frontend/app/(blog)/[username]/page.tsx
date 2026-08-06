@@ -8,7 +8,6 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 
 
-import { Footer } from "@/components/footer";
 import { userAPI, postAPI, mutesAPI, User, Post, MutedUser } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -316,7 +315,6 @@ export default function ProfilePage() {
           </div>
         )}
       </main>
-      <Footer />
     </div>
   );
 }

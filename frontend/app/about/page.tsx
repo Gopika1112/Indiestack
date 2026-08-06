@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Footer } from "@/components/footer";
 import { PenLine, Users, TrendingUp, Globe, Zap, Shield } from "lucide-react";
 
 const FEATURES = [
@@ -92,7 +91,6 @@ export default function AboutPage() {
           </p>
         </div>
       </main>
-      <Footer />
     </div>
   );
 }

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Footer } from "@/components/footer";
 import {
   BookOpen,
   FileText,
@@ -112,7 +111,6 @@ export default function HelpPage() {
           </p>
         </div>
       </main>
-      <Footer />
     </div>
   );
 }

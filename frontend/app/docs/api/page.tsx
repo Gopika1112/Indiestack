@@ -1,6 +1,5 @@
 "use client";
 
-import { Footer } from "@/components/footer";
 
 const ENDPOINTS = [
   {
@@ -200,7 +199,6 @@ export default function APIDocsPage() {
           </pre>
         </section>
       </main>
-      <Footer />
     </div>
   );
 }

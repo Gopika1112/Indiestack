@@ -7,10 +7,8 @@ import Link from "next/link";
 import { FloatingToolbar } from "@/components/post/floating-toolbar";
 import { PostActions } from "@/components/post/post-actions";
 import { RelatedPosts } from "@/components/post/related-posts";
-import { TrendingPostsRail } from "@/components/feed/trending-posts-rail";
 import { postAPI, userAPI, historyAPI, Post } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
-import { useSidebarStore } from "@/lib/sidebar-store";
 import { useToast } from "@/components/toast-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -32,7 +30,6 @@ export default function PostPage() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const { user, isAuthenticated } = useAuthStore();
-  const { collapsed } = useSidebarStore();
   const { toast } = useToast();
 
   const handleFollow = async () => {
@@ -157,16 +154,6 @@ export default function PostPage() {
       <div className="reading-progress" style={{ width: `${progress}%` }} />
 
       <div className="container mx-auto px-4 py-12">
-        {/* Trending-now rail — pinned to the LEFT, offset past the app sidebar so
-            it isn't covered by it (same size/location as on the feeds page). */}
-        <aside
-          className={`hidden xl:block xl:fixed xl:top-24 xl:w-[240px] ${
-            collapsed ? "xl:left-[88px]" : "xl:left-[276px]"
-          }`}
-        >
-          <TrendingPostsRail />
-        </aside>
-
         {/* Content is centered on screen (max-w + mx-auto). The related rail is
             pinned to the right edge of the viewport on large screens. */}
         <article className="max-w-[680px] mx-auto min-w-0">
@@ -189,6 +176,21 @@ export default function PostPage() {
             </div>
           )}
         </div>
+
+        {/* Category tags */}
+        {post.tags && post.tags.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-8">
+            {post.tags.map((tag) => (
+              <Link
+                key={tag}
+                href={`/discover?tag=${encodeURIComponent(tag)}`}
+                className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground transition-colors"
+              >
+                {tag}
+              </Link>
+            ))}
+          </div>
+        )}
 
         {/* Author */}
         <div className="flex items-center gap-3 mb-10">

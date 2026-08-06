@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Footer } from "@/components/footer";
 import { Button } from "@/components/ui/button";
 import { bookmarksAPI, postAPI, Bookmark, Post } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
@@ -156,7 +155,6 @@ export default function BookmarksPage() {
           </div>
         )}
       </main>
-      <Footer />
     </div>
   );
 }

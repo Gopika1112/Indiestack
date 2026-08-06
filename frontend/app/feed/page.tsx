@@ -4,12 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { feedAPI, Post } from "@/lib/api";
 import { PostCard } from "@/components/feed/post-card";
-import { Footer } from "@/components/footer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBookmarkedIds } from "@/lib/use-bookmarks";
 import { useAuthStore } from "@/lib/auth-store";
-import { TrendingPostsRail } from "@/components/feed/trending-posts-rail";
-import { TrendingTopicsRail } from "@/components/feed/trending-topics-rail";
 import { PenLine, Compass } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -62,16 +59,9 @@ export default function FeedPage() {
   return (
     <div className="flex flex-col min-h-screen">
       <div className="mx-auto px-6 py-6 max-w-[1600px] flex-1 w-full">
-        <div className="xl:flex xl:gap-10 xl:justify-between">
-          {/* Left rail: trending posts — always visible on desktop. */}
-          <aside className="hidden xl:block xl:w-[260px] xl:shrink-0">
-            <div className="xl:sticky xl:top-6 border-r border-border xl:pr-6">
-              <TrendingPostsRail />
-            </div>
-          </aside>
-
-          {/* Center column: the feed (kept at reading width, centered between the rails) */}
-          <div className="min-w-0 w-full max-w-[680px] mx-auto">
+        {/* Center column: the feed. The left (trending-now) and right (trending-topics)
+            rails are rendered universally by AppRails in the root layout. */}
+        <div className="min-w-0 w-full max-w-[680px] mx-auto">
         {/* Underline Tabs */}
         <div className="flex gap-0 border-b border-border mb-6">
           {TABS.map((tab) => (
@@ -134,18 +124,8 @@ export default function FeedPage() {
             </div>
           </div>
         )}
-          </div>
-
-          {/* Right rail: trending topics (always visible on desktop) */}
-          <aside className="hidden xl:block xl:w-[280px] xl:shrink-0">
-            <div className="xl:sticky xl:top-6 border-l border-border xl:pl-6">
-              <TrendingTopicsRail />
-            </div>
-          </aside>
         </div>
       </div>
-
-      <Footer />
     </div>
   );
 }
