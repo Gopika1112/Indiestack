@@ -23,14 +23,13 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $SshTarget = "$User@$Target"
 $Work = Join-Path $env:TEMP "indiestack-deploy-work"
-$Zip = Join-Path $env:TEMP "indiestack-deploy.zip"
 
 Write-Host "==> Packaging local source (excluding junk + secrets)..." -ForegroundColor Cyan
 if (Test-Path $Work) { Remove-Item $Work -Recurse -Force }
 New-Item -ItemType Directory -Path $Work -Force | Out-Null
 
 $include = @(
-  "frontend","backend","scripts","k8s","load-tests",
+  "frontend","backend","landing","scripts","k8s","load-tests",
   "docker-compose.yml","Caddyfile",".env.example","README.md","ARCHITECTURE.md"
 )
 foreach ($item in $include) {
@@ -75,7 +74,7 @@ $remote = @"
 set -e
 mkdir -p ~/indiestack
 cd ~/indiestack
-unzip -oq /tmp/indiestack-deploy.zip -d ~/indiestack
+tar -xzf /tmp/indiestack-deploy.tar.gz -C ~/indiestack
 sudo chown -R `$USER:`$USER ~/indiestack 2>/dev/null || true
 chmod -R u+rwX ~/indiestack
 echo '==> Building services...'

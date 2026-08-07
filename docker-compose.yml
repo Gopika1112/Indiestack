@@ -38,6 +38,16 @@ services:
     networks:
       - indiestack-network
 
+  # Landing page - Astro (static marketing site served at the root path)
+  landing:
+    build:
+      context: ./landing
+      dockerfile: Dockerfile
+    container_name: indiestack-landing
+    restart: unless-stopped
+    networks:
+      - indiestack-network
+
   # Backend - Go API
   go-api:
     build:

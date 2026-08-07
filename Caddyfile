@@ -44,6 +44,18 @@
         reverse_proxy go-api:3001
     }
 
+    # Astro static assets (landing page JS/CSS/fonts) -> landing service
+    handle /_astro/* {
+        reverse_proxy landing:4321
+    }
+
+    # Root path ONLY -> Astro marketing landing page. Uses an exact-path matcher
+    # so only "/" (and not every path) is sent to the landing service.
+    @root path /
+    handle @root {
+        reverse_proxy landing:4321
+    }
+
     # Everything else -> Next.js
     handle {
         reverse_proxy nextjs:3000 {

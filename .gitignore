@@ -80,3 +80,7 @@ test-report.md
 coverage.out
 
 
+
+# Astro landing build cache
+landing/.astro/
+landing/dist/

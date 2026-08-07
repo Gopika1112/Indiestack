@@ -1,0 +1,301 @@
+---
+// IndieStack marketing landing page (pure Astro, static).
+const features = [
+  {
+    title: "A focused writing editor",
+    body: "Write with a clean, rich-text editor. Drafts auto-save, and you can tag every story by topic so readers can find it.",
+    icon: "✍️",
+  },
+  {
+    title: "A living, trending feed",
+    body: "The feed surfaces what people are actually reading right now — trending posts and trending topics update from real, recent views, not stale all-time counts.",
+    icon: "📈",
+  },
+  {
+    title: "Follow the topics you love",
+    body: "Follow topics like Technology, Design, or AI. Your 'For You' feed shows only what you follow — and gracefully falls back when there's nothing new.",
+    icon: "🏷️",
+  },
+  {
+    title: "Related posts, automatically",
+    body: "Every story shows related reads powered by full-text search and shared tags, so readers keep discovering more of what they care about.",
+    icon: "🔗",
+  },
+  {
+    title: "Bookmarks & reading history",
+    body: "Save stories to your reading list and pick up where you left off — your reading history is always one click away.",
+    icon: "🔖",
+  },
+  {
+    title: "You own your space",
+    body: "Full control over your profile, privacy, notifications, and security — including active sessions and account controls, all in one settings hub.",
+    icon: "⚙️",
+  },
+];
+
+const steps = [
+  { n: "01", title: "Create your account", body: "Sign up in seconds and set up your public profile with your name, bio, and links." },
+  { n: "02", title: "Write your first story", body: "Open the editor, write, add a cover and topics, and publish — or save it as a draft to finish later." },
+  { n: "03", title: "Reach your readers", body: "Your story appears in feeds, trending, and related reads. Followers and topic-followers see it first." },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IndieStack — Share your stories</title>
+    <meta
+      name="description"
+      content="IndieStack is a modern, self-hosted publishing platform for independent writers. Write, publish, and grow your readership with a trending feed, topics, and related reads."
+    />
+    <script is:inline>
+      // Set the initial theme before paint to avoid a flash. Uses the saved choice,
+      // falling back to the OS preference.
+      (function () {
+        try {
+          var saved = localStorage.getItem("landing-theme");
+          var theme = saved || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --fg: #111827;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --accent: #111827;
+        --card: #f9fafb;
+      }
+      html[data-theme="dark"] {
+        --bg: #0b0f17;
+        --fg: #f3f4f6;
+        --muted: #9ca3af;
+        --border: #1f2937;
+        --accent: #f3f4f6;
+        --card: #11151d;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+      a { color: inherit; text-decoration: none; }
+
+      /* Nav */
+      header.nav { border-bottom: 1px solid var(--border); }
+      .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+      .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+      .brand .dot {
+        width: 28px; height: 28px; border-radius: 50%;
+        background: var(--accent); color: var(--bg);
+        display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;
+      }
+      .nav-links { display: flex; align-items: center; gap: 18px; font-size: 14px; }
+      .nav-links a.muted { color: var(--muted); }
+      .theme-toggle {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 38px; height: 38px; border-radius: 50%;
+        border: 1px solid var(--border); background: transparent; color: var(--fg);
+        cursor: pointer; font-size: 16px; line-height: 1;
+        transition: background 0.15s ease, opacity 0.15s ease;
+      }
+      .theme-toggle:hover { background: var(--card); }
+      .theme-toggle:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+      .btn {
+        display: inline-block; padding: 10px 20px; border-radius: 999px;
+        font-weight: 600; font-size: 14px; border: 1px solid var(--border);
+        transition: opacity 0.15s ease;
+      }
+      .btn:hover { opacity: 0.85; }
+      .btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+      .btn-ghost { background: transparent; color: var(--fg); }
+
+      /* Hero */
+      .hero { padding: 96px 0 72px; text-align: center; }
+      .eyebrow {
+        display: inline-block; font-size: 13px; color: var(--muted);
+        border: 1px solid var(--border); border-radius: 999px; padding: 4px 14px; margin-bottom: 24px;
+      }
+      .hero h1 { font-size: clamp(38px, 6vw, 64px); line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 20px; font-weight: 800; }
+      .hero p.lede { font-size: clamp(17px, 2.2vw, 20px); color: var(--muted); max-width: 640px; margin: 0 auto 36px; }
+      .hero .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+      .hero .cta .btn { padding: 13px 28px; font-size: 15px; }
+
+      /* Sections */
+      section { padding: 72px 0; border-top: 1px solid var(--border); }
+      .section-head { text-align: center; max-width: 640px; margin: 0 auto 48px; }
+      .section-head h2 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -0.01em; margin: 0 0 12px; font-weight: 800; }
+      .section-head p { color: var(--muted); font-size: 16px; margin: 0; }
+
+      /* Feature grid */
+      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+      @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+      @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+      .card {
+        background: var(--card); border: 1px solid var(--border);
+        border-radius: 14px; padding: 24px;
+      }
+      .card .icon { font-size: 26px; }
+      .card h3 { margin: 14px 0 8px; font-size: 17px; font-weight: 700; }
+      .card p { margin: 0; color: var(--muted); font-size: 14px; }
+
+      /* Steps */
+      .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+      @media (max-width: 720px) { .steps { grid-template-columns: 1fr; } }
+      .step { padding: 8px 4px; }
+      .step .n { font-size: 14px; font-weight: 700; color: var(--muted); letter-spacing: 0.1em; }
+      .step h3 { margin: 10px 0 6px; font-size: 18px; font-weight: 700; }
+      .step p { margin: 0; color: var(--muted); font-size: 14px; }
+
+      /* Final CTA */
+      .final { text-align: center; }
+      .final h2 { font-size: clamp(26px, 4vw, 40px); letter-spacing: -0.01em; margin: 0 0 16px; font-weight: 800; }
+      .final p { color: var(--muted); margin: 0 0 28px; }
+
+      /* Footer */
+      footer { border-top: 1px solid var(--border); padding: 32px 0; }
+      .foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--muted); }
+      .foot .links { display: flex; gap: 20px; }
+      .foot .links a:hover { color: var(--fg); }
+    </style>
+  </head>
+  <body>
+    <!-- Nav -->
+    <header class="nav">
+      <div class="wrap nav-inner">
+        <a class="brand" href="/">
+          <span class="dot">I</span>
+          <span>IndieStack</span>
+        </a>
+        <nav class="nav-links">
+          <a class="muted" href="#features">Features</a>
+          <a class="muted" href="#how">How it works</a>
+          <button
+            id="theme-toggle"
+            class="theme-toggle"
+            type="button"
+            aria-label="Toggle dark mode"
+            title="Toggle theme"
+          >
+            <span id="theme-toggle-icon">🌙</span>
+          </button>
+          <a class="btn btn-ghost" href="/login">Sign in</a>
+          <a class="btn btn-primary" href="/register">Get started</a>
+        </nav>
+      </div>
+    </header>
+
+    <!-- Hero -->
+    <section class="hero" style="border-top: none;">
+      <div class="wrap">
+        <span class="eyebrow">A self-hosted home for your writing</span>
+        <h1>Share your stories with the world.</h1>
+        <p class="lede">
+          IndieStack is a modern publishing platform for independent writers. Write with a
+          focused editor, reach readers through a living trending feed, and grow your
+          audience with topics, follows, and related reads.
+        </p>
+        <div class="cta">
+          <a class="btn btn-primary" href="/register">Start writing — it's free</a>
+          <a class="btn btn-ghost" href="/feed">Explore the feed</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Everything a writer needs</h2>
+          <p>Built for focus, discovery, and ownership — without the noise.</p>
+        </div>
+        <div class="grid">
+          {features.map((f) => (
+            <div class="card">
+              <div class="icon" aria-hidden="true">{f.icon}</div>
+              <h3>{f.title}</h3>
+              <p>{f.body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section id="how">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>How it works</h2>
+          <p>From blank page to published story in three steps.</p>
+        </div>
+        <div class="steps">
+          {steps.map((s) => (
+            <div class="step">
+              <div class="n">{s.n}</div>
+              <h3>{s.title}</h3>
+              <p>{s.body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <!-- Final CTA -->
+    <section class="final">
+      <div class="wrap">
+        <h2>Ready to tell your story?</h2>
+        <p>Join IndieStack and publish your first post in minutes.</p>
+        <a class="btn btn-primary" href="/register">Create your account</a>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+      <div class="wrap foot">
+        <span>&copy; {new Date().getFullYear()} IndieStack</span>
+        <div class="links">
+          <a href="/about">About</a>
+          <a href="/terms">Terms</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/help">Help</a>
+        </div>
+      </div>
+    </footer>
+
+    <script is:inline>
+      // Theme toggle: flip data-theme, persist the choice, and swap the icon.
+      (function () {
+        var btn = document.getElementById("theme-toggle");
+        var icon = document.getElementById("theme-toggle-icon");
+        if (!btn) return;
+
+        function current() {
+          return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+        }
+        function render() {
+          if (icon) icon.textContent = current() === "dark" ? "☀️" : "🌙";
+          btn.setAttribute("aria-pressed", current() === "dark" ? "true" : "false");
+        }
+        render();
+
+        btn.addEventListener("click", function () {
+          var next = current() === "dark" ? "light" : "dark";
+          document.documentElement.setAttribute("data-theme", next);
+          try { localStorage.setItem("landing-theme", next); } catch (e) {}
+          render();
+        });
+      })();
+    </script>
+  </body>
+</html>
