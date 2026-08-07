@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSidebarStore } from "@/lib/sidebar-store";
 import { TrendingPostsRail } from "@/components/feed/trending-posts-rail";
 import { TrendingTopicsRail } from "@/components/feed/trending-topics-rail";
 
@@ -11,22 +10,23 @@ import { TrendingTopicsRail } from "@/components/feed/trending-topics-rail";
 // shows its own related-posts rail instead. On the feed page the right rail also
 // shows Medium-style footer links (About/Terms/Privacy/Help).
 //
-// Rails are offset past the fixed app sidebar (260px expanded / 72px collapsed) so
-// they are never hidden behind it.
+// The left rail is pinned at a FIXED left offset (just past the collapsed sidebar's
+// 72px width). It does NOT move when the sidebar expands — the expanded sidebar
+// (z-40) simply slides OVER it, which is the intended behavior.
 export function AppRails() {
   const pathname = usePathname();
-  const { collapsed } = useSidebarStore();
 
-  const isPostPage = isPostPath(pathname);
-  if (isPostPage) return null;
+  // Hide the universal rails on post-specific pages AND on settings pages
+  // (settings has its own fixed left menu; rails would overlap/clutter it).
+  if (isPostPath(pathname)) return null;
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) return null;
 
   const isFeedPage = pathname === "/feed" || pathname === "/";
-  const leftOffset = collapsed ? "xl:left-[88px]" : "xl:left-[276px]";
 
   return (
     <>
-      {/* Left rail: trending posts (trending-now) */}
-      <aside className={`hidden xl:block xl:fixed xl:top-24 xl:w-[240px] ${leftOffset}`}>
+      {/* Left rail: trending posts (trending-now) — fixed position, sidebar slides over it */}
+      <aside className="hidden xl:block xl:fixed xl:top-24 xl:left-[88px] xl:w-[240px]">
         <TrendingPostsRail />
       </aside>
 

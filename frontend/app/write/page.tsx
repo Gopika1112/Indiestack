@@ -45,6 +45,8 @@ function WritePageEditor() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [coverUploading, setCoverUploading] = useState(false);
   const [draftLoading, setDraftLoading] = useState(!!draftId);
+  const [existingSlug, setExistingSlug] = useState("");
+  const [existingStatus, setExistingStatus] = useState<"draft" | "published" | "archived" | "">("");
   const coverFileInputRef = useRef<HTMLInputElement>(null);
 
   // Load an existing draft when ?draft=<id> is present.
@@ -60,6 +62,8 @@ function WritePageEditor() {
           setTags(p.tags || []);
           setCoverImageUrl(p.cover_image_url || "");
           setIsPremium(!!p.is_premium);
+          setExistingSlug(p.slug || "");
+          setExistingStatus(p.status || "");
           if (p.cover_image_url) setShowCoverInput(true);
           if (p.content) setContent(JSON.stringify(p.content));
         }
@@ -173,10 +177,10 @@ function WritePageEditor() {
       };
 
       if (draftId) {
-        // Publish the existing draft, then navigate using its known slug.
+        // Publish/update the existing post, then navigate to its (stable) slug.
         await postAPI.update(draftId, payload);
         toast({ title: "Story published!", variant: "success" });
-        router.push(`/@${user?.username}/${generateSlug()}`);
+        router.push(`/@${user?.username}/${existingSlug || generateSlug()}`);
       } else {
         const response = await postAPI.create({
           ...payload,
@@ -190,6 +194,22 @@ function WritePageEditor() {
     } catch (error) {
       console.error("Failed to publish:", error);
       toast({ title: "Failed to publish", variant: "error" });
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  // Move a published post back to draft status (keeps content + slug intact).
+  const handleMoveToDraft = async () => {
+    if (!draftId) return;
+    setPublishing(true);
+    try {
+      await postAPI.update(draftId, { status: "draft" });
+      toast({ title: "Moved to drafts", variant: "success" });
+      router.push("/dashboard/drafts");
+    } catch (error) {
+      console.error("Failed to move to draft:", error);
+      toast({ title: "Failed to move to draft", variant: "error" });
     } finally {
       setPublishing(false);
     }
@@ -404,6 +424,16 @@ function WritePageEditor() {
             </div>
 
             <div className="flex justify-end gap-3 mt-6">
+              {draftId && existingStatus === "published" && (
+                <Button
+                  variant="outline"
+                  onClick={handleMoveToDraft}
+                  disabled={publishing}
+                  className="rounded-full px-5"
+                >
+                  Move to drafts
+                </Button>
+              )}
               <Dialog.Close asChild>
                 <Button variant="ghost">Cancel</Button>
               </Dialog.Close>
@@ -413,9 +443,9 @@ function WritePageEditor() {
                 className="rounded-full px-6"
               >
                 {publishing ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Publishing...</>
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{existingStatus === "published" ? "Updating..." : "Publishing..."}</>
                 ) : (
-                  "Publish now"
+                  draftId && existingStatus === "published" ? "Update & republish" : "Publish now"
                 )}
               </Button>
             </div>

@@ -56,6 +56,7 @@ services:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-local-dev-meili-master-key}
       - JWT_SECRET=${JWT_SECRET:-dev-only-jwt-secret-min-32-bytes-local}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-dev-only-refresh-secret-local}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080}
       - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
       - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
       - SMTP_HOST=${SMTP_HOST}

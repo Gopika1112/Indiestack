@@ -52,8 +52,8 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
         <p className="text-muted-foreground mb-8">Manage your account and preferences.</p>
 
         <div className="flex flex-col md:flex-row gap-8">
-          {/* Section nav */}
-          <nav className="md:w-60 shrink-0">
+          {/* Section nav — sticky on desktop so it stays fixed while content scrolls */}
+          <nav className="md:w-60 shrink-0 md:sticky md:top-8 md:self-start md:max-h-[calc(100vh-4rem)] md:overflow-y-auto">
             <ul className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
               {SECTIONS.map((s) => {
                 const active = pathname === s.href || pathname.startsWith(s.href + "/");

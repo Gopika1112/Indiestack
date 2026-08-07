@@ -232,6 +232,15 @@ export default function PostPage() {
               </span>
             </div>
           </div>
+
+          {/* Edit button — only the post's author sees this */}
+          {isAuthenticated && user?.id === post.author_id && (
+            <Link href={`/write?draft=${post.id}`} className="ml-auto shrink-0">
+              <Button variant="outline" size="sm" className="rounded-full">
+                Edit post
+              </Button>
+            </Link>
+          )}
         </div>
 
         {/* Content */}
