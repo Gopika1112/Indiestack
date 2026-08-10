@@ -201,11 +201,20 @@ export const userAPI = {
     }),
 
   getFollowers: (username: string, params?: { limit?: number; offset?: number }) =>
-    fetchAPI<User[]>(`/users/${username}/followers?${buildParams(params)}`),
+    fetchAPI<FollowListUser[]>(`/users/${username}/followers?${buildParams(params)}`),
 
   getFollowing: (username: string, params?: { limit?: number; offset?: number }) =>
-    fetchAPI<User[]>(`/users/${username}/following?${buildParams(params)}`),
+    fetchAPI<FollowListUser[]>(`/users/${username}/following?${buildParams(params)}`),
 };
+
+// Compact user shape returned by the followers/following list endpoints.
+export interface FollowListUser {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string;
+  bio: string;
+}
 
 // Profile API (Penmark profiles table — separate from users table)
 export interface Profile {
@@ -387,6 +396,8 @@ export interface Comment {
   parent_id: string | null;
   body: string;
   username: string;
+  like_count: number;
+  liked: boolean;
   created_at: string;
 }
 
@@ -398,6 +409,17 @@ export const commentsAPI = {
       method: "POST",
       body: JSON.stringify({ post_id: postId, body, parent_id: parentId }),
     }),
+  update: (id: string, body: string) =>
+    fetchAPI<{ status: string }>(`/comments/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ body }),
+    }),
+  delete: (id: string) =>
+    fetchAPI<{ status: string }>(`/comments/${id}`, { method: "DELETE" }),
+  like: (id: string) =>
+    fetchAPI<{ status: string }>(`/comments/${id}/like`, { method: "POST" }),
+  unlike: (id: string) =>
+    fetchAPI<{ status: string }>(`/comments/${id}/like`, { method: "DELETE" }),
 };
 
 // Reposts API

@@ -816,6 +816,16 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle /users/:username/followers and /users/:username/following
+	if len(parts) >= 2 && parts[1] == "followers" {
+		userFollowListHandler(w, r, username, "followers")
+		return
+	}
+	if len(parts) >= 2 && parts[1] == "following" {
+		userFollowListHandler(w, r, username, "following")
+		return
+	}
+
 	var user User
 	// LEFT JOIN profiles and prefer its non-empty values (COALESCE + NULLIF) so the
 	// public profile reflects edits saved via the profiles endpoint (which writes
@@ -859,6 +869,54 @@ func userPostsHandler(w http.ResponseWriter, r *http.Request, username string) {
 	jsonSuccess(w, http.StatusOK, posts)
 }
 
+// FollowListUser is a compact user representation for follower/following lists.
+type FollowListUser struct {
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url"`
+	Bio         string `json:"bio"`
+}
+
+// userFollowListHandler returns the list of users who follow `username`
+// (kind="followers") or whom `username` follows (kind="following").
+func userFollowListHandler(w http.ResponseWriter, r *http.Request, username, kind string) {
+	var userID string
+	if err := db.QueryRow(`SELECT id FROM users WHERE username = $1`, username).Scan(&userID); err != nil {
+		jsonError(w, http.StatusNotFound, "NOT_FOUND", "User not found")
+		return
+	}
+
+	var query string
+	if kind == "followers" {
+		// People who follow this user: follows.following_id = userID, return follower.
+		query = `SELECT u.id, u.username, u.display_name, u.avatar_url, COALESCE(u.bio, '')
+			 FROM follows f JOIN users u ON u.id = f.follower_id
+			 WHERE f.following_id = $1 ORDER BY f.created_at DESC LIMIT 200`
+	} else {
+		// People this user follows: follows.follower_id = userID, return following.
+		query = `SELECT u.id, u.username, u.display_name, u.avatar_url, COALESCE(u.bio, '')
+			 FROM follows f JOIN users u ON u.id = f.following_id
+			 WHERE f.follower_id = $1 ORDER BY f.created_at DESC LIMIT 200`
+	}
+
+	rows, err := db.Query(query, userID)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	defer rows.Close()
+	users := []FollowListUser{}
+	for rows.Next() {
+		var u FollowListUser
+		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL, &u.Bio); err != nil {
+			continue
+		}
+		users = append(users, u)
+	}
+	jsonSuccess(w, http.StatusOK, users)
+}
+
 func postsHandler(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/posts/")
 
@@ -878,6 +936,14 @@ func postsHandler(w http.ResponseWriter, r *http.Request) {
 			relatedPostsHandler(w, r, postID)
 			return
 		}
+	}
+
+	// GET /api/v1/posts/{id} — fetch a single post by ID (any status). Used by the
+	// editor to load an existing draft/post for editing. Ownership not required for
+	// published posts; drafts/archived are restricted to their author.
+	if r.Method == http.MethodGet && path != "" && !strings.Contains(path, "/") && path != "mine" {
+		getPostByIDHandler(w, r, path)
+		return
 	}
 
 	// PUT /api/v1/posts/{id} — update post
@@ -935,6 +1001,50 @@ func getPostBySlug(w http.ResponseWriter, r *http.Request, username, slug string
 	viewerID, _ := extractUserID(r)
 	logPostView(post.ID, viewerID)
 
+	jsonSuccess(w, http.StatusOK, post)
+}
+
+// getPostByIDHandler returns a single post by ID, including drafts and archived
+// posts. Drafts/archived posts are only visible to their author (so the editor can
+// load them); published posts are visible to anyone. Does NOT log a view (this is
+// an editor/lookup fetch, not a public read).
+func getPostByIDHandler(w http.ResponseWriter, r *http.Request, postID string) {
+	var post Post
+	var authorName, authorAvatar string
+	var tagsJSON []byte
+	err := db.QueryRow(`
+		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+		 p.slug, p.title, p.content, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
+		 p.word_count, p.status, p.published_at, p.view_count, p.like_count, p.comment_count,
+		 p.is_premium, p.created_at, p.repost_count, p.updated_at
+		 FROM posts p JOIN users u ON p.author_id = u.id
+		 WHERE p.id = $1`,
+		postID,
+	).Scan(&post.ID, &post.AuthorID, &post.AuthorUsername, &authorName, &authorAvatar,
+		&post.Slug, &post.Title, &post.Content, &post.Excerpt, &tagsJSON, &post.CoverImageURL,
+		&post.ReadingTimeMinutes, &post.WordCount, &post.Status, &post.PublishedAt,
+		&post.ViewCount, &post.LikeCount, &post.CommentCount, &post.IsPremium, &post.CreatedAt,
+		&post.RepostCount, &post.UpdatedAt)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "NOT_FOUND", "Post not found")
+		return
+	}
+	// Non-published posts are only visible to their author.
+	if post.Status != "published" {
+		viewerID, verr := extractUserID(r)
+		if verr != nil || viewerID != post.AuthorID {
+			jsonError(w, http.StatusNotFound, "NOT_FOUND", "Post not found")
+			return
+		}
+	}
+	if len(tagsJSON) > 0 {
+		_ = json.Unmarshal(tagsJSON, &post.Tags)
+	}
+	if post.Tags == nil {
+		post.Tags = []string{}
+	}
+	post.AuthorName = authorName
+	post.AuthorAvatar = authorAvatar
 	jsonSuccess(w, http.StatusOK, post)
 }
 

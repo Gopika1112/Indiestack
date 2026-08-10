@@ -21,6 +21,10 @@ import {
   Link as LinkIcon,
   Send,
   Loader2,
+  Pencil,
+  Trash2,
+  Check,
+  X,
 } from "lucide-react";
 
 interface PostActionsProps {
@@ -30,7 +34,7 @@ interface PostActionsProps {
 }
 
 export function PostActions({ post, showComments = false }: PostActionsProps) {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
   const { toast } = useToast();
 
   const [liked, setLiked] = useState(false);
@@ -46,6 +50,9 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
   const [commentCount, setCommentCount] = useState(post.comment_count || 0);
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [commentBusy, setCommentBusy] = useState<string | null>(null);
 
   const postUrl = () =>
     `${window.location.origin}/@${post.author_username}/${post.slug}`;
@@ -170,6 +177,74 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
     }
   };
 
+  const toggleCommentLike = async (c: Comment) => {
+    if (!requireAuth("like comments") || commentBusy) return;
+    const next = !c.liked;
+    setCommentBusy(c.id);
+    // Optimistic update
+    setComments((prev) =>
+      prev.map((x) =>
+        x.id === c.id
+          ? { ...x, liked: next, like_count: x.like_count + (next ? 1 : -1) }
+          : x
+      )
+    );
+    try {
+      if (next) await commentsAPI.like(c.id);
+      else await commentsAPI.unlike(c.id);
+    } catch (err) {
+      console.error("Comment like failed:", err);
+      setComments((prev) =>
+        prev.map((x) =>
+          x.id === c.id
+            ? { ...x, liked: !next, like_count: x.like_count + (next ? -1 : 1) }
+            : x
+        )
+      );
+      toast({ title: "Couldn't update like", variant: "error" });
+    } finally {
+      setCommentBusy(null);
+    }
+  };
+
+  const startEdit = (c: Comment) => {
+    setEditingId(c.id);
+    setEditDraft(c.body);
+  };
+
+  const saveEdit = async (c: Comment) => {
+    const body = editDraft.trim();
+    if (!body) return;
+    setCommentBusy(c.id);
+    try {
+      await commentsAPI.update(c.id, body);
+      setComments((prev) => prev.map((x) => (x.id === c.id ? { ...x, body } : x)));
+      setEditingId(null);
+      toast({ title: "Comment updated", variant: "success" });
+    } catch (err) {
+      console.error("Comment update failed:", err);
+      toast({ title: "Couldn't update comment", variant: "error" });
+    } finally {
+      setCommentBusy(null);
+    }
+  };
+
+  const deleteComment = async (c: Comment) => {
+    if (!window.confirm("Delete this comment?")) return;
+    setCommentBusy(c.id);
+    try {
+      await commentsAPI.delete(c.id);
+      setComments((prev) => prev.filter((x) => x.id !== c.id));
+      setCommentCount((n) => Math.max(n - 1, 0));
+      toast({ title: "Comment deleted", variant: "success" });
+    } catch (err) {
+      console.error("Comment delete failed:", err);
+      toast({ title: "Couldn't delete comment", variant: "error" });
+    } finally {
+      setCommentBusy(null);
+    }
+  };
+
   return (
     <div className="w-full">
       <div className="flex items-center gap-1">
@@ -265,15 +340,98 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
               No comments yet. Be the first to comment.
             </p>
           ) : (
-            <div className="space-y-3">
-              {comments.map((c) => (
-                <div key={c.id} className="text-sm">
-                  <Link href={`/@${c.username}`} className="font-medium hover:underline">
-                    @{c.username}
-                  </Link>
-                  <p className="text-foreground mt-0.5 whitespace-pre-wrap">{c.body}</p>
-                </div>
-              ))}
+            <div className="space-y-4">
+              {comments.map((c) => {
+                const isOwn = user?.id === c.user_id;
+                const isEditing = editingId === c.id;
+                return (
+                  <div key={c.id} className="text-sm">
+                    <div className="flex items-center gap-2">
+                      <Link href={`/@${c.username}`} className="font-medium hover:underline">
+                        @{c.username}
+                      </Link>
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(c.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+
+                    {isEditing ? (
+                      <div className="mt-1.5 flex gap-2">
+                        <Textarea
+                          value={editDraft}
+                          onChange={(e) => setEditDraft(e.target.value)}
+                          rows={2}
+                          className="resize-none text-sm"
+                          maxLength={5000}
+                        />
+                        <div className="flex flex-col gap-1 self-end">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => saveEdit(c)}
+                            disabled={commentBusy === c.id || !editDraft.trim()}
+                            title="Save"
+                          >
+                            {commentBusy === c.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Check className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setEditingId(null)}
+                            title="Cancel"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-foreground mt-0.5 whitespace-pre-wrap">{c.body}</p>
+                    )}
+
+                    {/* Comment actions */}
+                    {!isEditing && (
+                      <div className="flex items-center gap-1 mt-1">
+                        <button
+                          onClick={() => toggleCommentLike(c)}
+                          disabled={commentBusy === c.id}
+                          title={c.liked ? "Unlike" : "Like"}
+                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs transition-colors hover:bg-muted ${
+                            c.liked ? "text-red-500" : "text-muted-foreground hover:text-red-500"
+                          }`}
+                        >
+                          <Heart className={`h-3.5 w-3.5 ${c.liked ? "fill-current" : ""}`} />
+                          <span>{c.like_count}</span>
+                        </button>
+                        {isOwn && (
+                          <>
+                            <button
+                              onClick={() => startEdit(c)}
+                              title="Edit comment"
+                              className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs text-muted-foreground hover:text-foreground transition-colors hover:bg-muted"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => deleteComment(c)}
+                              disabled={commentBusy === c.id}
+                              title="Delete comment"
+                              className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs text-muted-foreground hover:text-destructive transition-colors hover:bg-muted"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              Delete
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { postAPI, uploadAPI } from "@/lib/api";
 import { TagPicker } from "@/components/editor/tag-picker";
@@ -38,7 +37,6 @@ function WritePageEditor() {
   const [tags, setTags] = useState<string[]>([]);
   const [coverImageUrl, setCoverImageUrl] = useState("");
   const [isPremium, setIsPremium] = useState(false);
-  const [showCoverInput, setShowCoverInput] = useState(false);
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -64,7 +62,6 @@ function WritePageEditor() {
           setIsPremium(!!p.is_premium);
           setExistingSlug(p.slug || "");
           setExistingStatus(p.status || "");
-          if (p.cover_image_url) setShowCoverInput(true);
           if (p.content) setContent(JSON.stringify(p.content));
         }
       })
@@ -103,7 +100,6 @@ function WritePageEditor() {
     try {
       const result = await uploadAPI.upload(file);
       setCoverImageUrl(result.url);
-      setShowCoverInput(true);
       toast({ title: "Cover image uploaded", variant: "success" });
     } catch (error) {
       console.error("Cover upload failed:", error);
@@ -260,15 +256,8 @@ function WritePageEditor() {
           className="hidden"
           onChange={handleCoverUpload}
         />
-        {!showCoverInput && !coverImageUrl && (
+        {!coverImageUrl && (
           <div className="flex items-center gap-4 mb-6">
-            <button
-              onClick={() => setShowCoverInput(true)}
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ImagePlus className="h-4 w-4" />
-              Add cover image URL
-            </button>
             <button
               onClick={() => coverFileInputRef.current?.click()}
               disabled={coverUploading}
@@ -277,48 +266,29 @@ function WritePageEditor() {
               {coverUploading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Upload className="h-4 w-4" />
+                <ImagePlus className="h-4 w-4" />
               )}
-              {coverUploading ? "Uploading..." : "Upload cover image"}
+              {coverUploading ? "Uploading..." : "Add cover image"}
             </button>
           </div>
         )}
-        {(showCoverInput || coverImageUrl) && (
-          <div className="mb-6 space-y-3">
-            <div className="flex items-center gap-2">
-              <Input
-                placeholder="Paste cover image URL..."
-                value={coverImageUrl}
-                onChange={(e) => setCoverImageUrl(e.target.value)}
-                className="flex-1"
-              />
-              <button
-                onClick={() => coverFileInputRef.current?.click()}
-                disabled={coverUploading}
-                title="Upload from device"
-                className="p-2 text-muted-foreground hover:text-foreground disabled:opacity-50"
-              >
-                {coverUploading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Upload className="h-4 w-4" />
-                )}
-              </button>
-              <button
-                onClick={() => { setCoverImageUrl(""); setShowCoverInput(false); }}
-                className="p-2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            {coverImageUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
+        {coverImageUrl && (
+          <div className="mb-6">
+            <div className="relative inline-block">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={coverImageUrl}
                 alt="Cover preview"
                 className="max-h-48 rounded-lg border object-cover"
               />
-            )}
+              <button
+                onClick={() => setCoverImageUrl("")}
+                title="Remove cover image"
+                className="absolute -top-2 -right-2 rounded-full bg-background border p-1 text-muted-foreground hover:text-foreground shadow"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
 
@@ -379,12 +349,6 @@ function WritePageEditor() {
               <div>
                 <label className="text-sm font-medium mb-1.5 block">Cover image</label>
                 <div className="flex items-center gap-2">
-                  <Input
-                    placeholder="https://..."
-                    value={coverImageUrl}
-                    onChange={(e) => setCoverImageUrl(e.target.value)}
-                    className="flex-1"
-                  />
                   <Button
                     type="button"
                     variant="outline"
@@ -395,9 +359,19 @@ function WritePageEditor() {
                     {coverUploading ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <><Upload className="mr-1.5 h-4 w-4" />Upload</>
+                      <><Upload className="mr-1.5 h-4 w-4" />{coverImageUrl ? "Replace" : "Upload"}</>
                     )}
                   </Button>
+                  {coverImageUrl && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCoverImageUrl("")}
+                    >
+                      Remove
+                    </Button>
+                  )}
                 </div>
                 {coverImageUrl && (
                   // eslint-disable-next-line @next/next/no-img-element

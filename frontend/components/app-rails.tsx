@@ -16,10 +16,11 @@ import { TrendingTopicsRail } from "@/components/feed/trending-topics-rail";
 export function AppRails() {
   const pathname = usePathname();
 
-  // Hide the universal rails on post-specific pages AND on settings pages
-  // (settings has its own fixed left menu; rails would overlap/clutter it).
+  // Hide the universal rails on post-specific pages, settings pages, and the docs
+  // page (docs has its own left navigation panel; rails would overlap/clutter it).
   if (isPostPath(pathname)) return null;
   if (pathname === "/settings" || pathname.startsWith("/settings/")) return null;
+  if (pathname === "/docs" || pathname.startsWith("/docs/")) return null;
 
   const isFeedPage = pathname === "/feed" || pathname === "/";
 

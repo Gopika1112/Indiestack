@@ -39,6 +39,8 @@ type Comment struct {
 	ParentID  *string   `json:"parent_id"`
 	Body      string    `json:"body"`
 	Username  string    `json:"username,omitempty"`
+	LikeCount int       `json:"like_count"`
+	Liked     bool      `json:"liked"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -172,7 +174,14 @@ func commentsHandler(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 400, "missing_param", "post_id required")
 			return
 		}
-		rows, err := db.Query("SELECT c.id, c.post_id, c.user_id, c.parent_id, c.body, u.username, c.created_at FROM comments c JOIN users u ON c.user_id=u.id WHERE c.post_id=$1 ORDER BY c.created_at", postID)
+		// Optional auth: when signed in, flag which comments the viewer has liked.
+		viewerID, _ := extractUserID(r)
+		rows, err := db.Query(`
+			SELECT c.id, c.post_id, c.user_id, c.parent_id, c.body, u.username, c.like_count, c.created_at,
+			       EXISTS(SELECT 1 FROM comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = $2) AS liked
+			FROM comments c JOIN users u ON c.user_id = u.id
+			WHERE c.post_id = $1
+			ORDER BY c.created_at`, postID, viewerID)
 		if err != nil {
 			jsonError(w, 500, "db_error", err.Error())
 			return
@@ -181,7 +190,7 @@ func commentsHandler(w http.ResponseWriter, r *http.Request) {
 		var comments []Comment
 		for rows.Next() {
 			var c Comment
-			if err := rows.Scan(&c.ID, &c.PostID, &c.UserID, &c.ParentID, &c.Body, &c.Username, &c.CreatedAt); err != nil {
+			if err := rows.Scan(&c.ID, &c.PostID, &c.UserID, &c.ParentID, &c.Body, &c.Username, &c.LikeCount, &c.CreatedAt, &c.Liked); err != nil {
 				continue
 			}
 			comments = append(comments, c)
@@ -230,6 +239,140 @@ func commentsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonSuccess(w, 201, map[string]string{"id": id})
+	default:
+		jsonError(w, 405, "method_not_allowed", "Method not allowed")
+	}
+}
+
+// commentItemHandler operates on a single comment: edit (PUT), delete (DELETE),
+// like (POST /comments/{id}/like), unlike (DELETE /comments/{id}/like).
+// Routes: /api/v1/comments/{id} and /api/v1/comments/{id}/like
+func commentItemHandler(w http.ResponseWriter, r *http.Request) {
+	userID, err := extractUserID(r)
+	if err != nil {
+		jsonError(w, 401, "unauthorized", "Not authenticated")
+		return
+	}
+
+	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/comments/")
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	commentID := parts[0]
+	isLike := len(parts) == 2 && parts[1] == "like"
+	if commentID == "" || (len(parts) == 2 && !isLike) || len(parts) > 2 {
+		jsonError(w, 404, "not_found", "Not found")
+		return
+	}
+
+	// Resolve the comment and its owner.
+	var ownerID, postID string
+	if err := db.QueryRow("SELECT user_id, post_id FROM comments WHERE id=$1", commentID).Scan(&ownerID, &postID); err != nil {
+		jsonError(w, 404, "not_found", "Comment not found")
+		return
+	}
+
+	if isLike {
+		switch r.Method {
+		case http.MethodPost:
+			tx, err := db.Begin()
+			if err != nil {
+				jsonError(w, 500, "db_error", err.Error())
+				return
+			}
+			defer tx.Rollback()
+			res, err := tx.Exec("INSERT INTO comment_likes (user_id, comment_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", userID, commentID)
+			if err != nil {
+				jsonError(w, 500, "db_error", err.Error())
+				return
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				if _, err := tx.Exec("UPDATE comments SET like_count = like_count + 1 WHERE id=$1", commentID); err != nil {
+					jsonError(w, 500, "db_error", err.Error())
+					return
+				}
+			}
+			if err := tx.Commit(); err != nil {
+				jsonError(w, 500, "db_error", err.Error())
+				return
+			}
+			jsonSuccess(w, 200, map[string]string{"status": "liked"})
+		case http.MethodDelete:
+			tx, err := db.Begin()
+			if err != nil {
+				jsonError(w, 500, "db_error", err.Error())
+				return
+			}
+			defer tx.Rollback()
+			res, err := tx.Exec("DELETE FROM comment_likes WHERE user_id=$1 AND comment_id=$2", userID, commentID)
+			if err != nil {
+				jsonError(w, 500, "db_error", err.Error())
+				return
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				if _, err := tx.Exec("UPDATE comments SET like_count = GREATEST(like_count - 1, 0) WHERE id=$1", commentID); err != nil {
+					jsonError(w, 500, "db_error", err.Error())
+					return
+				}
+			}
+			if err := tx.Commit(); err != nil {
+				jsonError(w, 500, "db_error", err.Error())
+				return
+			}
+			jsonSuccess(w, 200, map[string]string{"status": "unliked"})
+		default:
+			jsonError(w, 405, "method_not_allowed", "Method not allowed")
+		}
+		return
+	}
+
+	// Edit / delete require ownership.
+	if ownerID != userID {
+		jsonError(w, 403, "forbidden", "You can only modify your own comments")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPut:
+		var input struct {
+			Body string `json:"body"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			jsonError(w, 400, "bad_request", "Invalid request body")
+			return
+		}
+		if len(strings.TrimSpace(input.Body)) == 0 {
+			jsonError(w, 400, "validation_error", "body is required")
+			return
+		}
+		if len(input.Body) > 5000 {
+			jsonError(w, 400, "validation_error", "body must be at most 5000 characters")
+			return
+		}
+		if _, err := db.Exec("UPDATE comments SET body=$1 WHERE id=$2", input.Body, commentID); err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		jsonSuccess(w, 200, map[string]string{"status": "updated"})
+	case http.MethodDelete:
+		// Delete the comment (replies cascade via FK). Decrement the post's comment_count.
+		tx, err := db.Begin()
+		if err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		defer tx.Rollback()
+		if _, err := tx.Exec("DELETE FROM comments WHERE id=$1", commentID); err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		if _, err := tx.Exec("UPDATE posts SET comment_count = GREATEST(comment_count - 1, 0) WHERE id=$1", postID); err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		jsonSuccess(w, 200, map[string]string{"status": "deleted"})
 	default:
 		jsonError(w, 405, "method_not_allowed", "Method not allowed")
 	}
@@ -998,6 +1141,7 @@ func handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 func registerPenmarkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/profiles/", profilesHandler)
 	mux.HandleFunc("/api/v1/comments", commentsHandler)
+	mux.HandleFunc("/api/v1/comments/", commentItemHandler)
 	mux.HandleFunc("/api/v1/bookmarks", bookmarksHandler)
 	mux.HandleFunc("/api/v1/notifications", notificationsHandler)
 	mux.HandleFunc("/api/v1/follow", followHandler)

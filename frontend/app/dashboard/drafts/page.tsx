@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { postAPI, Post } from "@/lib/api";
+import { Textarea } from "@/components/ui/textarea";
+import { postAPI, uploadAPI, Post } from "@/lib/api";
+import { TagPicker } from "@/components/editor/tag-picker";
 import { useAuthStore } from "@/lib/auth-store";
 import { useToast } from "@/components/toast-provider";
 import { formatDate } from "@/lib/utils";
-import { FileText, PenLine, Trash2, Send, Loader2 } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
+import { FileText, PenLine, Trash2, Send, Loader2, Upload } from "lucide-react";
 
 export default function DraftsPage() {
   const { isAuthenticated, isLoading: authLoading } = useAuthStore();
@@ -15,6 +18,16 @@ export default function DraftsPage() {
   const [drafts, setDrafts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
+
+  // Publish-modal state for the draft currently being published.
+  const [publishTarget, setPublishTarget] = useState<Post | null>(null);
+  const [excerpt, setExcerpt] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [coverImageUrl, setCoverImageUrl] = useState("");
+  const [isPremium, setIsPremium] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const coverFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -36,17 +49,55 @@ export default function DraftsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, authLoading]);
 
-  const handlePublish = async (post: Post) => {
-    setActionId(post.id);
+  // Open the publish modal pre-filled with the draft's current metadata so the
+  // author can add a description/tags/cover before the post goes live.
+  const openPublishModal = (post: Post) => {
+    setPublishTarget(post);
+    setExcerpt(post.excerpt || "");
+    setTags(post.tags || []);
+    setCoverImageUrl(post.cover_image_url || "");
+    setIsPremium(!!post.is_premium);
+  };
+
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCoverUploading(true);
     try {
-      await postAPI.update(post.id, { status: "published" });
-      setDrafts((prev) => prev.filter((d) => d.id !== post.id));
-      toast({ title: `"${post.title}" published`, variant: "success" });
+      const result = await uploadAPI.upload(file);
+      setCoverImageUrl(result.url);
+      toast({ title: "Cover image uploaded", variant: "success" });
+    } catch (err) {
+      console.error("Cover upload failed:", err);
+      toast({
+        title: err instanceof Error ? `Cover upload failed: ${err.message}` : "Cover upload failed",
+        variant: "error",
+      });
+    } finally {
+      setCoverUploading(false);
+      if (coverFileInputRef.current) coverFileInputRef.current.value = "";
+    }
+  };
+
+  const handleConfirmPublish = async () => {
+    if (!publishTarget) return;
+    setPublishing(true);
+    try {
+      await postAPI.update(publishTarget.id, {
+        excerpt,
+        tags,
+        cover_image_url: coverImageUrl,
+        is_premium: isPremium,
+        status: "published",
+      });
+      setDrafts((prev) => prev.filter((d) => d.id !== publishTarget.id));
+      setPublishTarget(null);
+      toast({ title: `"${publishTarget.title}" published`, variant: "success" });
     } catch (err) {
       console.error("Publish failed:", err);
       toast({ title: "Failed to publish draft", variant: "error" });
     } finally {
-      setActionId(null);
+      setPublishing(false);
     }
   };
 
@@ -145,7 +196,7 @@ export default function DraftsPage() {
                     variant="outline"
                     size="sm"
                     className="gap-1.5"
-                    onClick={() => handlePublish(draft)}
+                    onClick={() => openPublishModal(draft)}
                     disabled={actionId === draft.id}
                   >
                     {actionId === draft.id ? (
@@ -171,6 +222,110 @@ export default function DraftsPage() {
           </div>
         )}
       </main>
+
+      {/* Publish modal — collect description/tags/cover before going live */}
+      <Dialog.Root open={!!publishTarget} onOpenChange={(open) => !open && setPublishTarget(null)}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-lg bg-background rounded-xl border shadow-2xl p-6 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
+            <Dialog.Title className="text-lg font-semibold mb-1">
+              Publish your story
+            </Dialog.Title>
+            <Dialog.Description className="text-sm text-muted-foreground mb-6">
+              Add a description and topics before publishing &ldquo;{publishTarget?.title}&rdquo;.
+            </Dialog.Description>
+
+            {/* Hidden file input for cover upload */}
+            <input
+              ref={coverFileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+              className="hidden"
+              onChange={handleCoverUpload}
+            />
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Excerpt</label>
+                <Textarea
+                  placeholder="Write a brief summary of your story..."
+                  value={excerpt}
+                  onChange={(e) => setExcerpt(e.target.value)}
+                  className="resize-none"
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Tags</label>
+                <TagPicker value={tags} onChange={setTags} max={5} placeholder="Add a topic (e.g. Technology, AI)..." />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Cover image</label>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => coverFileInputRef.current?.click()}
+                    disabled={coverUploading}
+                  >
+                    {coverUploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <><Upload className="mr-1.5 h-4 w-4" />{coverImageUrl ? "Replace" : "Upload"}</>
+                    )}
+                  </Button>
+                  {coverImageUrl && (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setCoverImageUrl("")}>
+                      Remove
+                    </Button>
+                  )}
+                </div>
+                {coverImageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={coverImageUrl}
+                    alt="Cover preview"
+                    className="mt-2 max-h-40 rounded-lg border object-cover"
+                  />
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 p-3 border rounded-lg bg-muted/50">
+                <input
+                  type="checkbox"
+                  id="draft-premium-modal"
+                  checked={isPremium}
+                  onChange={(e) => setIsPremium(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <label htmlFor="draft-premium-modal" className="text-sm font-medium">
+                  Members only
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <Dialog.Close asChild>
+                <Button variant="ghost">Cancel</Button>
+              </Dialog.Close>
+              <Button
+                onClick={handleConfirmPublish}
+                disabled={publishing}
+                className="rounded-full px-6"
+              >
+                {publishing ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Publishing...</>
+                ) : (
+                  "Publish now"
+                )}
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

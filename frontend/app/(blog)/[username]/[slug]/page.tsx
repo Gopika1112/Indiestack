@@ -2,7 +2,7 @@
 
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { FloatingToolbar } from "@/components/post/floating-toolbar";
 import { PostActions } from "@/components/post/post-actions";
@@ -14,7 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate, getInitials } from "@/lib/utils";
-import { Clock } from "lucide-react";
+import { Clock, Loader2, Trash2 } from "lucide-react";
 import type { TipTapDoc, TipTapNode, TipTapMark } from "@/lib/tiptap-types";
 
 export default function PostPage() {
@@ -29,8 +29,10 @@ export default function PostPage() {
   const [coverError, setCoverError] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const { user, isAuthenticated } = useAuthStore();
   const { toast } = useToast();
+  const router = useRouter();
 
   const handleFollow = async () => {
     if (!isAuthenticated) {
@@ -54,6 +56,21 @@ export default function PostPage() {
       toast({ title: "Couldn't update follow", variant: "error" });
     } finally {
       setFollowLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!post) return;
+    if (!window.confirm(`Delete "${post.title}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await postAPI.delete(post.id);
+      toast({ title: "Post deleted", variant: "success" });
+      router.push("/feed");
+    } catch (error) {
+      console.error("Delete failed:", error);
+      toast({ title: "Failed to delete post", variant: "error" });
+      setDeleting(false);
     }
   };
 
@@ -233,13 +250,28 @@ export default function PostPage() {
             </div>
           </div>
 
-          {/* Edit button — only the post's author sees this */}
+          {/* Edit + Delete — only the post's author sees these */}
           {isAuthenticated && user?.id === post.author_id && (
-            <Link href={`/write?draft=${post.id}`} className="ml-auto shrink-0">
-              <Button variant="outline" size="sm" className="rounded-full">
-                Edit post
+            <div className="ml-auto shrink-0 flex items-center gap-2">
+              <Link href={`/write?draft=${post.id}`}>
+                <Button variant="outline" size="sm" className="rounded-full">
+                  Edit post
+                </Button>
+              </Link>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="rounded-full text-destructive hover:text-destructive border-destructive/40"
+              >
+                {deleting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
               </Button>
-            </Link>
+            </div>
           )}
         </div>
 
@@ -278,7 +310,16 @@ export default function PostPage() {
               </Link>
               <p className="text-muted-foreground mt-1 text-sm">@{post.author_username}</p>
             </div>
-            <Button className="rounded-full px-5">Follow</Button>
+            {isAuthenticated && user?.id !== post.author_id && (
+              <Button
+                onClick={handleFollow}
+                disabled={followLoading}
+                variant={isFollowing ? "outline" : "default"}
+                className="rounded-full px-5"
+              >
+                {isFollowing ? "Following" : "Follow"}
+              </Button>
+            )}
           </div>
         </div>
           </article>
