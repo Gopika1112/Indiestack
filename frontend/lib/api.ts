@@ -502,6 +502,48 @@ export const historyAPI = {
     }),
 };
 
+// Notifications API
+export interface NotificationItem {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+  created_at: string;
+}
+
+export const notificationsAPI = {
+  list: () => fetchAPI<NotificationItem[]>("/notifications"),
+  markAllRead: () =>
+    fetchAPI<{ status: string }>("/notifications", { method: "PUT" }),
+};
+
+// Reader highlights API
+export interface PostHighlight {
+  id: string;
+  user_id: string;
+  post_id: string;
+  text: string;
+  color: string;
+  created_at: string;
+  post_title?: string;
+  post_slug?: string;
+  author_username?: string;
+}
+
+export const highlightsAPI = {
+  list: (postId?: string) =>
+    fetchAPI<PostHighlight[]>(`/highlights${postId ? `?post_id=${encodeURIComponent(postId)}` : ""}`),
+  add: (postId: string, text: string, color = "yellow") =>
+    fetchAPI<{ id: string }>("/highlights", {
+      method: "POST",
+      body: JSON.stringify({ post_id: postId, text, color }),
+    }),
+  remove: (id: string) =>
+    fetchAPI<{ status: string }>(`/highlights/${id}`, { method: "DELETE" }),
+};
+
 // Upload API
 export const uploadAPI = {
   upload: async (file: File): Promise<{ url: string; filename: string; size: string }> => {

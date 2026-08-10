@@ -51,7 +51,7 @@ export function TrendingPostsRail() {
         <p className="text-xs text-muted-foreground">No trending posts yet.</p>
       ) : (
         <ol className="space-y-4">
-          {posts.map((p, i) => (
+          {posts.slice(0, 5).map((p, i) => (
             <li key={p.id} className="flex gap-3">
               <span className="text-xl font-bold text-muted-foreground/40 leading-none w-5 shrink-0">
                 {String(i + 1).padStart(2, "0")}

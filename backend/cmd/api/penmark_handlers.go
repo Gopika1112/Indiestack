@@ -238,6 +238,11 @@ func commentsHandler(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 500, "db_error", err.Error())
 			return
 		}
+		// Bump the post's comment count and notify the author.
+		if _, err := db.Exec("UPDATE posts SET comment_count = comment_count + 1 WHERE id=$1", input.PostID); err != nil {
+			log.Printf("comment count increment error: %v", err)
+		}
+		notifyPostAuthor(input.PostID, userID, "comment", "commented on your post")
 		jsonSuccess(w, 201, map[string]string{"id": id})
 	default:
 		jsonError(w, 405, "method_not_allowed", "Method not allowed")
@@ -353,7 +358,18 @@ func commentItemHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		jsonSuccess(w, 200, map[string]string{"status": "updated"})
 	case http.MethodDelete:
-		// Delete the comment (replies cascade via FK). Decrement the post's comment_count.
+		// Count this comment + all its descendants (replies cascade-delete via FK),
+		// so the post's comment_count is decremented by the right amount.
+		var removed int
+		if err := db.QueryRow(`
+			WITH RECURSIVE thread AS (
+				SELECT id FROM comments WHERE id = $1
+				UNION ALL
+				SELECT c.id FROM comments c JOIN thread t ON c.parent_id = t.id
+			) SELECT COUNT(*) FROM thread`, commentID).Scan(&removed); err != nil || removed == 0 {
+			removed = 1
+		}
+
 		tx, err := db.Begin()
 		if err != nil {
 			jsonError(w, 500, "db_error", err.Error())
@@ -364,7 +380,7 @@ func commentItemHandler(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 500, "db_error", err.Error())
 			return
 		}
-		if _, err := tx.Exec("UPDATE posts SET comment_count = GREATEST(comment_count - 1, 0) WHERE id=$1", postID); err != nil {
+		if _, err := tx.Exec("UPDATE posts SET comment_count = GREATEST(comment_count - $2, 0) WHERE id=$1", postID, removed); err != nil {
 			jsonError(w, 500, "db_error", err.Error())
 			return
 		}
@@ -441,6 +457,43 @@ func bookmarksHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Notifications ---
+
+// createNotification inserts a notification for a user. It is best-effort (logs
+// errors, never blocks the triggering action) and skips self-notifications.
+// `kind` is one of: like, comment, follow, repost, mention.
+func createNotification(recipientID, actorID, kind, title, body string) {
+	if recipientID == "" || recipientID == actorID {
+		return
+	}
+	if _, err := db.Exec(
+		"INSERT INTO notifications (user_id, type, title, body) VALUES ($1,$2,$3,$4)",
+		recipientID, kind, title, body,
+	); err != nil {
+		log.Printf("create notification error: %v", err)
+	}
+}
+
+// displayName looks up a user's display name for use in notification text.
+func displayName(userID string) string {
+	var name string
+	if err := db.QueryRow("SELECT display_name FROM users WHERE id=$1", userID).Scan(&name); err != nil {
+		return "Someone"
+	}
+	return name
+}
+
+// notifyPostAuthor notifies the author of a post that an actor performed an
+// action (like/repost/comment) on it. Best-effort; skips self-actions.
+func notifyPostAuthor(postID, actorID, kind, verb string) {
+	var authorID, title string
+	if err := db.QueryRow("SELECT author_id, title FROM posts WHERE id=$1", postID).Scan(&authorID, &title); err != nil {
+		return
+	}
+	if title == "" {
+		title = "your post"
+	}
+	createNotification(authorID, actorID, kind, displayName(actorID)+" "+verb, title)
+}
 
 func notificationsHandler(w http.ResponseWriter, r *http.Request) {
 	userID, err := extractUserID(r)
@@ -529,6 +582,9 @@ func followHandler(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 500, "db_error", err.Error())
 			return
 		}
+		if n > 0 {
+			createNotification(input.FollowingID, userID, "follow", displayName(userID)+" started following you", "")
+		}
 		jsonSuccess(w, 200, map[string]string{"status": "followed"})
 	case http.MethodDelete:
 		tx, err := db.Begin()
@@ -601,6 +657,9 @@ func likesHandler(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Commit(); err != nil {
 			jsonError(w, 500, "db_error", err.Error())
 			return
+		}
+		if n > 0 {
+			notifyPostAuthor(input.PostID, userID, "like", "liked your post")
 		}
 		jsonSuccess(w, 200, map[string]string{"status": "liked"})
 	case http.MethodDelete:
@@ -958,6 +1017,9 @@ func repostsHandler(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 500, "db_error", err.Error())
 			return
 		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			notifyPostAuthor(input.PostID, userID, "repost", "reposted your post")
+		}
 		jsonSuccess(w, 200, map[string]string{"status": "reposted"})
 	case http.MethodDelete:
 		postID := r.URL.Query().Get("post_id")
@@ -1136,6 +1198,127 @@ func handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// --- Reader Highlights ---
+
+type PostHighlight struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	PostID    string    `json:"post_id"`
+	Text      string    `json:"text"`
+	Color     string    `json:"color"`
+	CreatedAt time.Time `json:"created_at"`
+	// Joined fields for the highlights page.
+	PostTitle      string `json:"post_title,omitempty"`
+	PostSlug       string `json:"post_slug,omitempty"`
+	AuthorUsername string `json:"author_username,omitempty"`
+}
+
+// highlightsHandler lists the current user's highlights (GET, optionally
+// ?post_id=) and creates a new highlight (POST).
+func highlightsHandler(w http.ResponseWriter, r *http.Request) {
+	userID, err := extractUserID(r)
+	if err != nil {
+		jsonError(w, 401, "unauthorized", "Not authenticated")
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		postID := r.URL.Query().Get("post_id")
+		query := `SELECT h.id, h.user_id, h.post_id, h.text, h.color, h.created_at,
+		           p.title, p.slug, u.username
+		    FROM post_highlights h
+		    JOIN posts p ON p.id = h.post_id
+		    JOIN users u ON u.id = p.author_id
+		    WHERE h.user_id = $1`
+		args := []interface{}{userID}
+		if postID != "" {
+			query += " AND h.post_id = $2"
+			args = append(args, postID)
+		}
+		query += " ORDER BY h.created_at DESC LIMIT 200"
+		rows, err := db.Query(query, args...)
+		if err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		defer rows.Close()
+		hl := []PostHighlight{}
+		for rows.Next() {
+			var h PostHighlight
+			if err := rows.Scan(&h.ID, &h.UserID, &h.PostID, &h.Text, &h.Color, &h.CreatedAt,
+				&h.PostTitle, &h.PostSlug, &h.AuthorUsername); err != nil {
+				continue
+			}
+			hl = append(hl, h)
+		}
+		jsonSuccess(w, 200, hl)
+	case http.MethodPost:
+		var input struct {
+			PostID string `json:"post_id"`
+			Text   string `json:"text"`
+			Color  string `json:"color"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			jsonError(w, 400, "bad_request", "Invalid request body")
+			return
+		}
+		input.Text = strings.TrimSpace(input.Text)
+		if input.PostID == "" || input.Text == "" {
+			jsonError(w, 400, "validation_error", "post_id and text are required")
+			return
+		}
+		if len(input.Text) > 2000 {
+			jsonError(w, 400, "validation_error", "text must be at most 2000 characters")
+			return
+		}
+		switch input.Color {
+		case "yellow", "green", "blue", "pink":
+		default:
+			input.Color = "yellow"
+		}
+		var id string
+		err := db.QueryRow(
+			"INSERT INTO post_highlights (user_id, post_id, text, color) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, post_id, text) DO UPDATE SET color=EXCLUDED.color RETURNING id",
+			userID, input.PostID, input.Text, input.Color,
+		).Scan(&id)
+		if err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		jsonSuccess(w, 201, map[string]string{"id": id})
+	default:
+		jsonError(w, 405, "method_not_allowed", "Method not allowed")
+	}
+}
+
+// highlightItemHandler deletes a single highlight owned by the current user.
+func highlightItemHandler(w http.ResponseWriter, r *http.Request) {
+	userID, err := extractUserID(r)
+	if err != nil {
+		jsonError(w, 401, "unauthorized", "Not authenticated")
+		return
+	}
+	if r.Method != http.MethodDelete {
+		jsonError(w, 405, "method_not_allowed", "Method not allowed")
+		return
+	}
+	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/highlights/"), "/")
+	if id == "" || strings.Contains(id, "/") {
+		jsonError(w, 404, "not_found", "Not found")
+		return
+	}
+	res, err := db.Exec("DELETE FROM post_highlights WHERE id=$1 AND user_id=$2", id, userID)
+	if err != nil {
+		jsonError(w, 500, "db_error", err.Error())
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		jsonError(w, 404, "not_found", "Highlight not found")
+		return
+	}
+	jsonSuccess(w, 200, map[string]string{"status": "deleted"})
+}
+
 // --- Register All Penmark Routes ---
 
 func registerPenmarkRoutes(mux *http.ServeMux) {
@@ -1151,6 +1334,8 @@ func registerPenmarkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/jobs", jobsHandler)
 	mux.HandleFunc("/api/v1/newsletter", newsletterHandler)
 	mux.HandleFunc("/api/v1/history", historyHandler)
+	mux.HandleFunc("/api/v1/highlights", highlightsHandler)
+	mux.HandleFunc("/api/v1/highlights/", highlightItemHandler)
 	mux.HandleFunc("/api/v1/search", searchHandler)
 	mux.HandleFunc("/api/v1/earnings", earningsHandler)
 	mux.HandleFunc("/api/v1/stats", statsHandler)
