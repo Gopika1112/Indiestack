@@ -10,6 +10,9 @@ coverage/
 .next/
 out/
 
+# TypeScript incremental build cache
+*.tsbuildinfo
+
 # Production builds
 dist/
 build/
