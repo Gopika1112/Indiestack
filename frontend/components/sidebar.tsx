@@ -253,12 +253,6 @@ export function Sidebar() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href={`/@${user?.username}`} className="cursor-pointer">
-                    <FileText className="mr-2 h-4 w-4" />
-                    Stories
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
                   <Link href="/dashboard/drafts" className="cursor-pointer">
                     <FileText className="mr-2 h-4 w-4" />
                     Drafts
