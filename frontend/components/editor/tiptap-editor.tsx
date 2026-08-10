@@ -7,6 +7,7 @@ import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
+import Highlight from "@tiptap/extension-highlight";
 
 import {
   Bold,
@@ -26,6 +27,7 @@ import {
   Undo,
   Redo,
   Loader2,
+  Highlighter,
 } from "lucide-react";
 import { uploadAPI } from "@/lib/api";
 
@@ -33,6 +35,21 @@ interface TipTapEditorProps {
   content?: string;
   onChange?: (content: string) => void;
   placeholder?: string;
+}
+
+// Parse the incoming content into a TipTap JSON doc. The write page stores the
+// body as a JSON *string*; passing that string straight to the editor makes
+// TipTap treat it as HTML, so the raw JSON markup shows up as literal text in
+// the body. Parsing it into an object first ensures TipTap renders rich text.
+function parseContent(content: string): object | string {
+  if (!content) return "";
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === "object") return parsed;
+    return content;
+  } catch {
+    return content;
+  }
 }
 
 export function TipTapEditor({ content = "", onChange, placeholder = "Start writing..." }: TipTapEditorProps) {
@@ -43,6 +60,7 @@ export function TipTapEditor({ content = "", onChange, placeholder = "Start writ
     extensions: [
       StarterKit,
       Underline,
+      Highlight.configure({ multicolor: false }),
       Image,
       Link.configure({
         openOnClick: false,
@@ -51,7 +69,7 @@ export function TipTapEditor({ content = "", onChange, placeholder = "Start writ
         placeholder,
       }),
     ],
-    content,
+    content: parseContent(content),
     onUpdate: ({ editor }) => {
       onChange?.(JSON.stringify(editor.getJSON()));
     },
@@ -187,6 +205,12 @@ export function TipTapEditor({ content = "", onChange, placeholder = "Start writ
           isActive={editor.isActive("code")}
           icon={<Code className="h-4 w-4" />}
           label="Code"
+        />
+        <ToolbarButton
+          onClick={() => editor.chain().focus().toggleHighlight().run()}
+          isActive={editor.isActive("highlight")}
+          icon={<Highlighter className="h-4 w-4" />}
+          label="Highlight"
         />
         <div className="w-px h-6 bg-border mx-1" />
         <ToolbarButton

@@ -7,7 +7,7 @@ import Link from "next/link";
 import { FloatingToolbar } from "@/components/post/floating-toolbar";
 import { PostActions } from "@/components/post/post-actions";
 import { RelatedPosts } from "@/components/post/related-posts";
-import { postAPI, userAPI, historyAPI, Post } from "@/lib/api";
+import { postAPI, userAPI, historyAPI, settingsAPI, Post } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { useToast } from "@/components/toast-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -16,6 +16,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate, getInitials } from "@/lib/utils";
 import { Clock, Loader2, Trash2 } from "lucide-react";
 import type { TipTapDoc, TipTapNode, TipTapMark } from "@/lib/tiptap-types";
+
+// Map the reader's highlight_color preference to an actual CSS color for <mark>.
+const HIGHLIGHT_COLORS: Record<string, string> = {
+  yellow: "#fef08a",
+  green: "#bbf7d0",
+  blue: "#bfdbfe",
+  pink: "#fbcfe8",
+};
 
 export default function PostPage() {
   const params = useParams();
@@ -30,6 +38,7 @@ export default function PostPage() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [highlightColor, setHighlightColor] = useState("yellow");
   const { user, isAuthenticated } = useAuthStore();
   const { toast } = useToast();
   const router = useRouter();
@@ -109,6 +118,18 @@ export default function PostPage() {
   useEffect(() => {
     loadPost();
   }, [loadPost]);
+
+  // Load the reader's preferred highlight color (only meaningful when signed in).
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    settingsAPI
+      .getReading()
+      .then((res) => {
+        const c = (res.data as Record<string, unknown> | undefined)?.highlight_color;
+        if (typeof c === "string" && c) setHighlightColor(c);
+      })
+      .catch(() => {});
+  }, [isAuthenticated]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -277,8 +298,13 @@ export default function PostPage() {
 
         {/* Content */}
         <div className="prose prose-lg max-w-none mb-10">
+          {/* Apply the reader's chosen highlight color to <mark> highlights. */}
+          <style>{`.post-content mark{background-color:${HIGHLIGHT_COLORS[highlightColor] || HIGHLIGHT_COLORS.yellow};color:inherit;padding:0 2px;border-radius:2px}`}</style>
           {post.content && (
-            <div dangerouslySetInnerHTML={{ __html: renderContent(post.content) }} />
+            <div
+              className="post-content"
+              dangerouslySetInnerHTML={{ __html: renderContent(post.content) }}
+            />
           )}
         </div>
 
@@ -404,6 +430,9 @@ function renderNode(node: TipTapNode): string {
               break;
             case "strike":
               text = `<s>${text}</s>`;
+              break;
+            case "highlight":
+              text = `<mark>${text}</mark>`;
               break;
             case "link":
               text = `<a href="${mark.attrs?.href || "#"}" target="_blank" rel="noopener noreferrer">${text}</a>`;
