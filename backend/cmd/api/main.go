@@ -728,7 +728,10 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
 	err = db.QueryRow(
 		`SELECT id, email, username, display_name, bio, avatar_url, website, location,
-		 is_verified, is_premium, follower_count, following_count, created_at
+		 is_verified, is_premium,
+		 (SELECT COUNT(*) FROM follows f WHERE f.following_id = users.id),
+		 (SELECT COUNT(*) FROM follows f WHERE f.follower_id = users.id),
+		 created_at
 		 FROM users WHERE id::text = $1`, userID,
 	).Scan(&user.ID, &user.Email, &user.Username, &user.DisplayName, &user.Bio, &user.AvatarURL,
 		&user.Website, &user.Location, &user.IsVerified, &user.IsPremium, &user.FollowerCount,
@@ -837,7 +840,10 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			u.avatar_url,
 			COALESCE(NULLIF(p.website, ''), u.website),
 			COALESCE(NULLIF(p.location, ''), u.location),
-			u.is_verified, u.is_premium, u.follower_count, u.following_count, u.created_at
+			u.is_verified, u.is_premium,
+			(SELECT COUNT(*) FROM follows f WHERE f.following_id = u.id),
+			(SELECT COUNT(*) FROM follows f WHERE f.follower_id = u.id),
+			u.created_at
 		 FROM users u
 		 LEFT JOIN profiles p ON p.user_id = u.id
 		 WHERE u.username = $1`, username,

@@ -3,8 +3,8 @@
 
 INSERT INTO users (id, email, username, password_hash, display_name, bio, avatar_url, website, location, is_verified, is_premium, follower_count, following_count, created_at, updated_at)
 VALUES
-  ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12', 'alice@example.com', 'alice_writes', '$2b$12$tHdsC62npgIAnP4htzhDLustWqz8S6d18q3mvnvvW5AGr2gW92Cla', 'Alice Writer', 'Loves writing about tech and indie hacking.', 'https://api.dicebear.com/7.x/avataaars/svg?seed=alice', 'https://alice.blog', 'San Francisco', true, false, 128, 42, NOW(), NOW()),
-  ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a13', 'bob@example.com', 'bob_codes', '$2b$12$tHdsC62npgIAnP4htzhDLustWqz8S6d18q3mvnvvW5AGr2gW92Cla', 'Bob Developer', 'Building in public, one commit at a time.', 'https://api.dicebear.com/7.x/avataaars/svg?seed=bob', 'https://bob.dev', 'New York', false, true, 89, 15, NOW(), NOW())
+  ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12', 'alice@example.com', 'alice_writes', '$2b$12$tHdsC62npgIAnP4htzhDLustWqz8S6d18q3mvnvvW5AGr2gW92Cla', 'Alice Writer', 'Loves writing about tech and indie hacking.', 'https://api.dicebear.com/7.x/avataaars/svg?seed=alice', 'https://alice.blog', 'San Francisco', true, false, 0, 0, NOW(), NOW()),
+  ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a13', 'bob@example.com', 'bob_codes', '$2b$12$tHdsC62npgIAnP4htzhDLustWqz8S6d18q3mvnvvW5AGr2gW92Cla', 'Bob Developer', 'Building in public, one commit at a time.', 'https://api.dicebear.com/7.x/avataaars/svg?seed=bob', 'https://bob.dev', 'New York', false, true, 0, 0, NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO profiles (user_id, name, bio, location, website, created_at, updated_at)

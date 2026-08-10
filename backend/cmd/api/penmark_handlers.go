@@ -908,7 +908,7 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 500, "db_error", err.Error())
 		return
 	}
-	if err := db.QueryRow("SELECT follower_count FROM users WHERE id=$1", userID).Scan(&followerCount); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM follows WHERE following_id=$1", userID).Scan(&followerCount); err != nil {
 		jsonError(w, 500, "db_error", err.Error())
 		return
 	}
