@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Post,
-  likesAPI,
   commentsAPI,
   repostsAPI,
+  clapsAPI,
+  reportsAPI,
   Comment,
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
@@ -25,6 +26,8 @@ import {
   Trash2,
   Check,
   X,
+  Hand,
+  Flag,
 } from "lucide-react";
 
 interface PostActionsProps {
@@ -37,10 +40,9 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
   const { isAuthenticated, user } = useAuthStore();
   const { toast } = useToast();
 
-  const [liked, setLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(post.like_count || 0);
+  const [clapCount, setClapCount] = useState(post.clap_count || 0);
+  const [userClaps, setUserClaps] = useState(0);
   const [reposted, setReposted] = useState(false);
-  const [repostCount, setRepostCount] = useState(post.repost_count || 0);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -53,6 +55,10 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [commentBusy, setCommentBusy] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("spam");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reporting, setReporting] = useState(false);
 
   const postUrl = () =>
     `${window.location.origin}/@${post.author_username}/${post.slug}`;
@@ -65,22 +71,46 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
     return true;
   };
 
-  const toggleLike = async (e?: React.MouseEvent) => {
+  // Claps are cumulative (up to 50 per user per post), not a toggle.
+  const addClap = async (e?: React.MouseEvent) => {
     e?.preventDefault();
     e?.stopPropagation();
-    if (!requireAuth("like posts") || busy) return;
-    const next = !liked;
-    setLiked(next);
-    setLikeCount((c) => c + (next ? 1 : -1));
-    setBusy("like");
+    if (!requireAuth("clap for posts") || busy) return;
+    if (userClaps >= 50) {
+      toast({ title: "You've reached the max of 50 claps", variant: "error" });
+      return;
+    }
+    const next = userClaps + 1;
+    setUserClaps(next);
+    setClapCount((c) => c + 1);
+    setBusy("clap");
     try {
-      if (next) await likesAPI.like(post.id);
-      else await likesAPI.unlike(post.id);
+      const res = await clapsAPI.clap(post.id, 1);
+      if (res.data) setClapCount(res.data.total);
     } catch (err) {
-      console.error("Like failed:", err);
-      setLiked(!next);
-      setLikeCount((c) => c + (next ? -1 : 1));
-      toast({ title: "Couldn't update like", variant: "error" });
+      console.error("Clap failed:", err);
+      setUserClaps(userClaps);
+      setClapCount((c) => c - 1);
+      toast({ title: "Couldn't update clap", variant: "error" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const removeClaps = async (e?: React.MouseEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    if (!requireAuth("remove claps") || busy) return;
+    if (userClaps === 0) return;
+    setBusy("clap");
+    try {
+      await clapsAPI.unclap(post.id);
+      const res = await clapsAPI.getCount(post.id);
+      if (res.data) setClapCount(res.data.total);
+      setUserClaps(0);
+    } catch (err) {
+      console.error("Remove claps failed:", err);
+      toast({ title: "Couldn't remove claps", variant: "error" });
     } finally {
       setBusy(null);
     }
@@ -92,7 +122,6 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
     if (!requireAuth("repost") || busy) return;
     const next = !reposted;
     setReposted(next);
-    setRepostCount((c) => c + (next ? 1 : -1));
     setBusy("repost");
     try {
       if (next) {
@@ -104,7 +133,6 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
     } catch (err) {
       console.error("Repost failed:", err);
       setReposted(!next);
-      setRepostCount((c) => c + (next ? -1 : 1));
       toast({ title: "Couldn't update repost", variant: "error" });
     } finally {
       setBusy(null);
@@ -133,6 +161,26 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
     }
   };
 
+  const handleReport = async () => {
+    if (!requireAuth("report content")) return;
+    setReporting(true);
+    try {
+      await reportsAPI.create({
+        post_id: post.id,
+        reason: reportReason,
+        details: reportDetails,
+      });
+      toast({ title: "Report submitted", variant: "success" });
+      setReportOpen(false);
+      setReportDetails("");
+    } catch (err) {
+      console.error("Report failed:", err);
+      toast({ title: "Couldn't submit report", variant: "error" });
+    } finally {
+      setReporting(false);
+    }
+  };
+
   const loadComments = async () => {
     try {
       const res = await commentsAPI.list(post.id);
@@ -140,6 +188,9 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
       setCommentsLoaded(true);
     } catch (err) {
       console.error("Load comments failed:", err);
+      // Fix: Always set commentsLoaded to true, even on error
+      // This prevents the infinite loading spinner
+      setCommentsLoaded(true);
     }
   };
 
@@ -149,6 +200,26 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showComments, post.id]);
+
+  // Load the user's existing clap count and repost state so the buttons reflect their state.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    clapsAPI
+      .getCount(post.id)
+      .then((res) => {
+        if (res.data) {
+          setUserClaps(res.data.user_count);
+          setClapCount(res.data.total);
+        }
+      })
+      .catch(() => {});
+    repostsAPI
+      .getState(post.id)
+      .then((res) => {
+        if (res.data) setReposted(res.data.reposted);
+      })
+      .catch(() => {});
+  }, [post.id, isAuthenticated]);
 
   const toggleComments = (e?: React.MouseEvent) => {
     e?.preventDefault();
@@ -167,6 +238,7 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
       await commentsAPI.add(post.id, body);
       setDraft("");
       setCommentCount((c) => c + 1);
+      // Reload comments to get the full comment data from the server
       await loadComments();
       toast({ title: "Comment posted", variant: "success" });
     } catch (err) {
@@ -248,18 +320,30 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
   return (
     <div className="w-full">
       <div className="flex items-center gap-1">
-        {/* Like */}
-        <button
-          onClick={toggleLike}
-          disabled={busy === "like"}
-          title={liked ? "Unlike" : "Like"}
-          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-full text-sm transition-colors hover:bg-muted ${
-            liked ? "text-red-500" : "text-muted-foreground hover:text-red-500"
-          }`}
-        >
-          <Heart className={`h-[18px] w-[18px] ${liked ? "fill-current" : ""}`} />
-          <span>{likeCount}</span>
-        </button>
+        {/* Clap — cumulative (up to 50 per user), Medium-style */}
+        <div className="flex items-center gap-0">
+          <button
+            onClick={addClap}
+            disabled={busy === "clap" || userClaps >= 50}
+            title={userClaps >= 50 ? "Max claps reached" : "Clap"}
+            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-full text-sm transition-colors hover:bg-muted ${
+              userClaps > 0 ? "text-amber-500" : "text-muted-foreground hover:text-amber-500"
+            }`}
+          >
+            <Hand className={`h-[18px] w-[18px] ${userClaps > 0 ? "fill-current" : ""}`} />
+            <span>{clapCount}</span>
+          </button>
+          {userClaps > 0 && (
+            <button
+              onClick={removeClaps}
+              disabled={busy === "clap"}
+              title="Remove all your claps"
+              className="text-xs text-muted-foreground hover:text-foreground px-1"
+            >
+              ×
+            </button>
+          )}
+        </div>
 
         {/* Comment */}
         <button
@@ -271,17 +355,15 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
           <span>{commentCount}</span>
         </button>
 
-        {/* Repost */}
+        {/* Repost — green when reposted, no count */}
         <button
           onClick={toggleRepost}
           disabled={busy === "repost"}
           title={reposted ? "Undo repost" : "Repost"}
-          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-full text-sm transition-colors hover:bg-muted ${
-            reposted ? "text-green-600" : "text-muted-foreground hover:text-green-600"
-          }`}
+          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-full text-sm transition-colors hover:bg-muted ${reposted ? "text-green-600" : "text-muted-foreground hover:text-green-600"
+            }`}
         >
           <Repeat2 className="h-[18px] w-[18px]" />
-          <span>{repostCount}</span>
         </button>
 
         {/* Share */}
@@ -295,6 +377,15 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
           ) : (
             <Share2 className="h-[18px] w-[18px]" />
           )}
+        </button>
+
+        {/* Report */}
+        <button
+          onClick={() => setReportOpen(true)}
+          title="Report"
+          className="flex items-center gap-1.5 px-2 py-1.5 rounded-full text-sm text-muted-foreground hover:text-destructive transition-colors hover:bg-muted"
+        >
+          <Flag className="h-[18px] w-[18px]" />
         </button>
       </div>
 
@@ -399,9 +490,8 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
                           onClick={() => toggleCommentLike(c)}
                           disabled={commentBusy === c.id}
                           title={c.liked ? "Unlike" : "Like"}
-                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs transition-colors hover:bg-muted ${
-                            c.liked ? "text-red-500" : "text-muted-foreground hover:text-red-500"
-                          }`}
+                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs transition-colors hover:bg-muted ${c.liked ? "text-red-500" : "text-muted-foreground hover:text-red-500"
+                            }`}
                         >
                           <Heart className={`h-3.5 w-3.5 ${c.liked ? "fill-current" : ""}`} />
                           <span>{c.like_count}</span>
@@ -434,6 +524,59 @@ export function PostActions({ post, showComments = false }: PostActionsProps) {
               })}
             </div>
           )}
+        </div>
+      )}
+      {/* Report modal */}
+      {reportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setReportOpen(false)} />
+          <div className="relative z-10 w-full max-w-md bg-background rounded-xl border shadow-2xl p-6">
+            <h3 className="text-lg font-semibold mb-1">Report this post</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Help us understand what&apos;s wrong with this content.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Reason</label>
+                <select
+                  value={reportReason}
+                  onChange={(e) => setReportReason(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="spam">Spam</option>
+                  <option value="abuse">Abuse</option>
+                  <option value="inappropriate">Inappropriate content</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Details (optional)</label>
+                <Textarea
+                  placeholder="Tell us more about the issue..."
+                  value={reportDetails}
+                  onChange={(e) => setReportDetails(e.target.value)}
+                  rows={3}
+                  className="resize-none text-sm"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setReportOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleReport}
+                  disabled={reporting}
+                  className="rounded-full"
+                >
+                  {reporting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Submit report"
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

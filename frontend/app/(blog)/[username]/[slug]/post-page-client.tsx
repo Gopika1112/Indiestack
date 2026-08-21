@@ -6,14 +6,22 @@ import Link from "next/link";
 import { FloatingToolbar } from "@/components/post/floating-toolbar";
 import { PostActions } from "@/components/post/post-actions";
 import { RelatedPosts } from "@/components/post/related-posts";
-import { postAPI, userAPI, historyAPI, settingsAPI, highlightsAPI, Post } from "@/lib/api";
+import { postAPI, userAPI, historyAPI, settingsAPI, highlightsAPI, publicationsAPI, listsAPI, responsesAPI, Post, Publication, ReadingList } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { useToast } from "@/components/toast-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatDate, getInitials } from "@/lib/utils";
-import { Clock, Loader2, Trash2, Highlighter } from "lucide-react";
+import { formatDate, formatRelativeDate, getInitials } from "@/lib/utils";
+import { Clock, Loader2, Trash2, Highlighter, BookOpen, List, MoreHorizontal, Pencil, BarChart3 } from "lucide-react";
 import type { TipTapDoc, TipTapNode, TipTapMark } from "@/lib/tiptap-types";
 
 // Map the reader's highlight_color preference to an actual CSS color for <mark>.
@@ -67,6 +75,22 @@ export function PostPageClient() {
   const [deleting, setDeleting] = useState(false);
   const [hlPopup, setHlPopup] = useState<{ text: string; x: number; y: number } | null>(null);
   const [savingHl, setSavingHl] = useState(false);
+  const [pubOpen, setPubOpen] = useState(false);
+  const [myPubs, setMyPubs] = useState<Publication[]>([]);
+  const [pubLoading, setPubLoading] = useState(false);
+  const [submittingPub, setSubmittingPub] = useState<string | null>(null);
+  const [listOpen, setListOpen] = useState(false);
+  const [myLists, setMyLists] = useState<ReadingList[]>([]);
+  const [listLoading, setListLoading] = useState(false);
+  const [submittingList, setSubmittingList] = useState<string | null>(null);
+  const [responses, setResponses] = useState<Post[]>([]);
+  const [responsesLoading, setResponsesLoading] = useState(false);
+  const [responseOpen, setResponseOpen] = useState(false);
+  const [responseTitle, setResponseTitle] = useState("");
+  const [responseContent, setResponseContent] = useState("");
+  const [submittingResponse, setSubmittingResponse] = useState(false);
+  const [stats, setStats] = useState<{ views: number; claps: number; comments: number; reposts: number } | null>(null);
+  const [statsOpen, setStatsOpen] = useState(false);
   const [readingPrefs, setReadingPrefs] = useState({
     highlight_color: "yellow",
     reading_font: "sans",
@@ -114,6 +138,120 @@ export function PostPageClient() {
       console.error("Delete failed:", error);
       toast({ title: "Failed to delete post", variant: "error" });
       setDeleting(false);
+    }
+  };
+
+  const openPublishToPub = async () => {
+    if (!post) return;
+    setPubOpen(true);
+    setPubLoading(true);
+    try {
+      const res = await publicationsAPI.listMine();
+      setMyPubs(res.data || []);
+    } catch (err) {
+      console.error("Failed to load publications:", err);
+      setMyPubs([]);
+    } finally {
+      setPubLoading(false);
+    }
+  };
+
+  const submitToPublication = async (pubSlug: string) => {
+    if (!post) return;
+    setSubmittingPub(pubSlug);
+    try {
+      await publicationsAPI.addPost(pubSlug, post.id);
+      toast({ title: "Added to publication", variant: "success" });
+      setPubOpen(false);
+    } catch (err) {
+      console.error("Submit to publication failed:", err);
+      toast({ title: "Couldn't add to publication", variant: "error" });
+    } finally {
+      setSubmittingPub(null);
+    }
+  };
+
+  const openSaveToList = async () => {
+    if (!isAuthenticated) {
+      toast({ title: "Sign in to save to a list", variant: "error" });
+      return;
+    }
+    if (!post) return;
+    setListOpen(true);
+    setListLoading(true);
+    try {
+      const res = await listsAPI.listMine();
+      setMyLists(res.data || []);
+    } catch (err) {
+      console.error("Failed to load lists:", err);
+      setMyLists([]);
+    } finally {
+      setListLoading(false);
+    }
+  };
+
+  const saveToList = async (listId: string) => {
+    if (!post) return;
+    setSubmittingList(listId);
+    try {
+      await listsAPI.addItem(listId, post.id);
+      toast({ title: "Saved to list", variant: "success" });
+      setListOpen(false);
+    } catch (err) {
+      console.error("Save to list failed:", err);
+      toast({ title: "Couldn't save to list", variant: "error" });
+    } finally {
+      setSubmittingList(null);
+    }
+  };
+
+  const loadResponses = async () => {
+    if (!post) return;
+    setResponsesLoading(true);
+    try {
+      const res = await responsesAPI.list(post.id);
+      setResponses(res.data || []);
+    } catch (err) {
+      console.error("Load responses failed:", err);
+      setResponses([]);
+    } finally {
+      setResponsesLoading(false);
+    }
+  };
+
+  const submitResponse = async () => {
+    if (!post || !responseTitle.trim() || !responseContent.trim()) return;
+    setSubmittingResponse(true);
+    try {
+      await responsesAPI.create({
+        parent_post_id: post.id,
+        title: responseTitle.trim(),
+        content: {
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: responseContent.trim() }] }],
+        },
+        excerpt: responseContent.trim().slice(0, 150),
+      });
+      toast({ title: "Response published", variant: "success" });
+      setResponseOpen(false);
+      setResponseTitle("");
+      setResponseContent("");
+      await loadResponses();
+    } catch (err) {
+      console.error("Submit response failed:", err);
+      toast({ title: "Couldn't publish response", variant: "error" });
+    } finally {
+      setSubmittingResponse(false);
+    }
+  };
+
+  const loadStats = async () => {
+    if (!post) return;
+    try {
+      const res = await postAPI.getStats(post.id);
+      if (res.data) setStats(res.data);
+    } catch (err) {
+      console.error("Load stats failed:", err);
     }
   };
 
@@ -190,6 +328,12 @@ export function PostPageClient() {
   useEffect(() => {
     loadPost();
   }, [loadPost]);
+
+  // Load responses when the post loads.
+  useEffect(() => {
+    if (post) loadResponses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [post?.id]);
 
   // Load the reader's display preferences (font, size, spacing, highlight color).
   useEffect(() => {
@@ -307,61 +451,74 @@ export function PostPageClient() {
           </div>
         )}
 
-        {/* Author */}
-        <div className="flex items-center gap-3 mb-10">
-          <Link href={`/@${post.author_username}`}>
-            <Avatar className="h-11 w-11">
-              <AvatarImage src={post.author_avatar} alt={post.author_name} />
-              <AvatarFallback>{getInitials(post.author_name)}</AvatarFallback>
-            </Avatar>
-          </Link>
-          <div>
-            <div className="flex items-center gap-2">
-              <Link
-                href={`/@${post.author_username}`}
-                className="font-medium hover:underline"
-              >
-                {post.author_name}
-              </Link>
-              {user?.id !== post.author_id && (
-                <>
-                  <span className="text-muted-foreground">·</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleFollow}
-                    disabled={followLoading}
-                    className="text-primary h-auto p-0 font-normal"
-                  >
-                    {isFollowing ? "Following" : "Follow"}
-                  </Button>
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span>{formatDate(post.published_at || post.created_at)}</span>
-              {isEdited(post) && (
-                <>
-                  <span>·</span>
-                  <span className="italic">Edited</span>
-                </>
-              )}
-              <span>·</span>
-              <span className="flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                {post.reading_time_minutes} min read
-              </span>
+        {/* Author header — author info on left, author actions (Edit/Delete/⋯) on right */}
+        <div className="flex items-start justify-between gap-4 mb-10">
+          {/* Author info row */}
+          <div className="flex items-center gap-3">
+            <Link href={`/@${post.author_username}`}>
+              <Avatar className="h-11 w-11">
+                <AvatarImage src={post.author_avatar} alt={post.author_name} />
+                <AvatarFallback>{getInitials(post.author_name)}</AvatarFallback>
+              </Avatar>
+            </Link>
+            <div>
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/@${post.author_username}`}
+                  className="font-medium hover:underline"
+                >
+                  {post.author_name}
+                </Link>
+                {user?.id !== post.author_id && (
+                  <>
+                    <span className="text-muted-foreground">·</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleFollow}
+                      disabled={followLoading}
+                      className="text-primary h-auto p-0 font-normal"
+                    >
+                      {isFollowing ? "Following" : "Follow"}
+                    </Button>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span>{formatDate(post.published_at || post.created_at)}</span>
+                {isEdited(post) && (
+                  <>
+                    <span>·</span>
+                    <span className="italic">Edited</span>
+                  </>
+                )}
+                <span>·</span>
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {post.reading_time_minutes} min read
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Edit + Delete — only the post's author sees these */}
+          {/* Author actions: Edit, Delete, Stats, and ⋯ menu — next to author name */}
           {isAuthenticated && user?.id === post.author_id && (
-            <div className="ml-auto shrink-0 flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <Link href={`/write?draft=${post.id}`}>
                 <Button variant="outline" size="sm" className="rounded-full">
-                  Edit post
+                  <Pencil className="h-4 w-4 mr-1" />
+                  Edit
                 </Button>
               </Link>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { loadStats(); setStatsOpen(true); }}
+                className="rounded-full"
+              >
+                <BarChart3 className="h-4 w-4 mr-1" />
+                Stats
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -372,8 +529,43 @@ export function PostPageClient() {
                 {deleting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Trash2 className="h-4 w-4" />
+                  <>
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Delete
+                  </>
                 )}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="rounded-full">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onClick={openPublishToPub} className="cursor-pointer">
+                    <BookOpen className="mr-2 h-4 w-4" />
+                    Add to publication
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={openSaveToList} className="cursor-pointer">
+                    <List className="mr-2 h-4 w-4" />
+                    Save to list
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
+
+          {/* Reader: just Save to list — next to author name */}
+          {isAuthenticated && user?.id !== post.author_id && (
+            <div className="shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openSaveToList}
+                className="rounded-full"
+              >
+                <List className="h-4 w-4 mr-1" />
+                Save to list
               </Button>
             </div>
           )}
@@ -421,7 +613,7 @@ export function PostPageClient() {
         </div>
 
         {/* Author Card */}
-        <div className="border-t pt-8">
+        <div className="border-t pt-8 mb-8">
           <div className="flex items-start gap-4">
             <Link href={`/@${post.author_username}`}>
               <Avatar className="h-16 w-16">
@@ -455,6 +647,56 @@ export function PostPageClient() {
             )}
           </div>
         </div>
+
+        {/* Responses */}
+        <div className="border-t pt-8 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">
+              Responses {responses.length > 0 && `(${responses.length})`}
+            </h3>
+            {isAuthenticated && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full"
+                onClick={() => setResponseOpen(true)}
+              >
+                Write a response
+              </Button>
+            )}
+          </div>
+
+          {responsesLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground py-4">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading responses...
+            </div>
+          ) : responses.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">
+              No responses yet. Be the first to respond.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {responses.map((r) => (
+                <div key={r.id} className="border rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Avatar className="h-6 w-6">
+                      <AvatarImage src={r.author_avatar} alt={r.author_name} />
+                      <AvatarFallback className="text-[10px]">{getInitials(r.author_name)}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm font-medium">{r.author_name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatRelativeDate(r.published_at || r.created_at)}
+                    </span>
+                  </div>
+                  <h4 className="font-semibold text-base mb-1">{r.title}</h4>
+                  <div className="text-sm text-foreground whitespace-pre-wrap">
+                    {renderResponseContent(r.content)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
           </article>
 
           {/* Related posts rail — pinned to the right edge of the screen on wide
@@ -470,11 +712,218 @@ export function PostPageClient() {
 
       {/* Floating toolbar */}
       <FloatingToolbar postId={post.id} likeCount={post.like_count} commentCount={post.comment_count} />
+
+      {/* Add-to-publication modal */}
+      {pubOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setPubOpen(false)} />
+          <div className="relative z-10 w-full max-w-md bg-background rounded-xl border shadow-2xl p-6">
+            <h3 className="text-lg font-semibold mb-1">Add to publication</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Choose a publication you&apos;re a member of.
+            </p>
+            {pubLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground py-6 justify-center">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+              </div>
+            ) : myPubs.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-muted-foreground mb-3">
+                  You&apos;re not a member of any publication yet.
+                </p>
+                <Link href="/publications/new" onClick={() => setPubOpen(false)}>
+                  <Button variant="outline" className="rounded-full">Create a publication</Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {myPubs.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => submitToPublication(p.slug)}
+                    disabled={submittingPub !== null}
+                    className="w-full flex items-center gap-3 border rounded-lg p-3 hover:bg-muted/40 transition-colors text-left"
+                  >
+                    <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+                      {p.logo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={p.logo_url} alt={p.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <BookOpen className="h-5 w-5 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium">{p.name}</span>
+                    </div>
+                    {submittingPub === p.slug && (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Save-to-list modal */}
+      {listOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setListOpen(false)} />
+          <div className="relative z-10 w-full max-w-md bg-background rounded-xl border shadow-2xl p-6">
+            <h3 className="text-lg font-semibold mb-1">Save to list</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Choose one of your lists.
+            </p>
+            {listLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground py-6 justify-center">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+              </div>
+            ) : myLists.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-muted-foreground mb-3">
+                  You don&apos;t have any lists yet.
+                </p>
+                <Link href="/lists/new" onClick={() => setListOpen(false)}>
+                  <Button variant="outline" className="rounded-full">Create a list</Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {myLists.map((l) => (
+                  <button
+                    key={l.id}
+                    onClick={() => saveToList(l.id)}
+                    disabled={submittingList !== null}
+                    className="w-full flex items-center gap-3 border rounded-lg p-3 hover:bg-muted/40 transition-colors text-left"
+                  >
+                    <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+                      <List className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium">{l.name}</span>
+                      <p className="text-xs text-muted-foreground">{l.item_count} stories</p>
+                    </div>
+                    {submittingList === l.id && (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Stats modal */}
+      {statsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setStatsOpen(false)} />
+          <div className="relative z-10 w-full max-w-md bg-background rounded-xl border shadow-2xl p-6">
+            <h3 className="text-lg font-semibold mb-1">Story stats</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              How your story is performing.
+            </p>
+            {stats ? (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="border rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold">{stats.views}</div>
+                  <div className="text-sm text-muted-foreground">Views</div>
+                </div>
+                <div className="border rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold">{stats.claps}</div>
+                  <div className="text-sm text-muted-foreground">Claps</div>
+                </div>
+                <div className="border rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold">{stats.comments}</div>
+                  <div className="text-sm text-muted-foreground">Comments</div>
+                </div>
+                <div className="border rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold">{stats.reposts}</div>
+                  <div className="text-sm text-muted-foreground">Reposts</div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-muted-foreground py-6 justify-center">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading stats...
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Write-a-response modal */}
+      {responseOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setResponseOpen(false)} />
+          <div className="relative z-10 w-full max-w-lg bg-background rounded-xl border shadow-2xl p-6">
+            <h3 className="text-lg font-semibold mb-1">Write a response</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Respond to &quot;{post.title}&quot; with your own story.
+            </p>
+            <div className="space-y-3">
+              <Input
+                placeholder="Response title"
+                value={responseTitle}
+                onChange={(e) => setResponseTitle(e.target.value)}
+                className="rounded-lg"
+              />
+              <Textarea
+                placeholder="Write your response..."
+                value={responseContent}
+                onChange={(e) => setResponseContent(e.target.value)}
+                rows={6}
+                className="rounded-lg resize-none"
+              />
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setResponseOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={submitResponse}
+                  disabled={submittingResponse || !responseTitle.trim() || !responseContent.trim()}
+                  className="rounded-full"
+                >
+                  {submittingResponse ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Publish response"
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── TipTap content renderer ─────────────────────────────────────────
+
+// renderResponseContent renders a response's TipTap content as plain text
+// (responses are inline, so we don't need full HTML rendering).
+function renderResponseContent(content: unknown): string {
+  if (typeof content === "string") {
+    try {
+      const parsed = JSON.parse(content);
+      return extractText(parsed);
+    } catch {
+      return content;
+    }
+  }
+  return extractText(content);
+}
+
+function extractText(node: unknown): string {
+  if (!node || typeof node !== "object") return "";
+  const n = node as Record<string, unknown>;
+  if (n.type === "text" && typeof n.text === "string") return n.text;
+  if (Array.isArray(n.content)) {
+    return n.content.map(extractText).join(" ");
+  }
+  return "";
+}
 
 function renderContent(content: unknown): string {
   if (typeof content === "string") {

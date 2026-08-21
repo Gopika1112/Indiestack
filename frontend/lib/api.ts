@@ -53,6 +53,7 @@ export interface Post {
   like_count: number;
   comment_count: number;
   repost_count?: number;
+  clap_count?: number;
   is_premium: boolean;
   created_at: string;
   updated_at: string;
@@ -299,6 +300,8 @@ export const postAPI = {
   getMyPosts: () => fetchAPI<Post[]>("/posts/mine"),
 
   getRelated: (id: string) => fetchAPI<Post[]>(`/posts/${id}/related`),
+
+  getStats: (id: string) => fetchAPI<{ views: number; claps: number; comments: number; reposts: number }>(`/posts/stats/${id}`),
 };
 
 // Tags API
@@ -424,6 +427,12 @@ export const commentsAPI = {
 
 // Reposts API
 export const repostsAPI = {
+  list: (username?: string) =>
+    fetchAPI<Post[]>(`/reposts${username ? `?username=${encodeURIComponent(username)}` : ""}`),
+
+  getState: (postId: string) =>
+    fetchAPI<{ reposted: boolean }>(`/reposts/state?post_id=${encodeURIComponent(postId)}`),
+
   repost: (postId: string) =>
     fetchAPI<{ status: string }>("/reposts", {
       method: "POST",
@@ -681,4 +690,202 @@ export const settingsAPI = {
   deleteAccount: () => fetchAPI<{ message: string }>("/settings/delete-account", { method: "DELETE" }),
   deactivateAccount: () => fetchAPI<{ message: string }>("/settings/deactivate-account", { method: "POST" }),
   removeAllStories: () => fetchAPI<{ message: string }>("/settings/remove-all-stories", { method: "POST" }),
+};
+
+// ---------- Publications API ----------
+
+export interface Publication {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  logo_url: string;
+  owner_id: string;
+  owner_name: string;
+  follower_count: number;
+  post_count: number;
+  created_at: string;
+}
+
+export interface PublicationMember {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string;
+  role: string;
+}
+
+export const publicationsAPI = {
+  list: () => fetchAPI<Publication[]>("/publications"),
+
+  listMine: () => fetchAPI<Publication[]>("/publications?mine=1"),
+
+  get: (slug: string) => fetchAPI<Publication>(`/publications/${slug}`),
+
+  create: (data: { name: string; slug?: string; description?: string; logo_url?: string }) =>
+    fetchAPI<{ id: string; slug: string }>("/publications", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  update: (slug: string, data: { name?: string; description?: string; logo_url?: string }) =>
+    fetchAPI<{ status: string }>(`/publications/${slug}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  remove: (slug: string) =>
+    fetchAPI<{ status: string }>(`/publications/${slug}`, { method: "DELETE" }),
+
+  posts: (slug: string) => fetchAPI<Post[]>(`/publications/${slug}/posts`),
+
+  addPost: (slug: string, postId: string) =>
+    fetchAPI<{ status: string }>(`/publications/${slug}/posts`, {
+      method: "POST",
+      body: JSON.stringify({ post_id: postId }),
+    }),
+
+  removePost: (slug: string, postId: string) =>
+    fetchAPI<{ status: string }>(`/publications/${slug}/posts?post_id=${encodeURIComponent(postId)}`, {
+      method: "DELETE",
+    }),
+
+  follow: (slug: string) =>
+    fetchAPI<{ status: string }>(`/publications/${slug}/follow`, { method: "POST" }),
+
+  unfollow: (slug: string) =>
+    fetchAPI<{ status: string }>(`/publications/${slug}/follow`, { method: "DELETE" }),
+
+  members: (slug: string) => fetchAPI<PublicationMember[]>(`/publications/${slug}/members`),
+
+  addMember: (slug: string, username: string, role?: string) =>
+    fetchAPI<{ status: string }>(`/publications/${slug}/members`, {
+      method: "POST",
+      body: JSON.stringify({ username, role }),
+    }),
+
+  removeMember: (slug: string, username: string) =>
+    fetchAPI<{ status: string }>(`/publications/${slug}/members?username=${encodeURIComponent(username)}`, {
+      method: "DELETE",
+    }),
+};
+
+// ---------- Lists API ----------
+
+export interface ReadingList {
+  id: string;
+  user_id: string;
+  owner_username: string;
+  owner_name: string;
+  name: string;
+  description: string;
+  is_public: boolean;
+  item_count: number;
+  created_at: string;
+}
+
+export const listsAPI = {
+  list: () => fetchAPI<ReadingList[]>("/lists"),
+
+  listMine: () => fetchAPI<ReadingList[]>("/lists?mine=1"),
+
+  get: (id: string) => fetchAPI<ReadingList>(`/lists/${id}`),
+
+  create: (data: { name: string; description?: string; is_public?: boolean }) =>
+    fetchAPI<{ id: string }>("/lists", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  update: (id: string, data: { name?: string; description?: string; is_public?: boolean }) =>
+    fetchAPI<{ status: string }>(`/lists/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  remove: (id: string) =>
+    fetchAPI<{ status: string }>(`/lists/${id}`, { method: "DELETE" }),
+
+  items: (id: string) => fetchAPI<Post[]>(`/lists/${id}/items`),
+
+  addItem: (id: string, postId: string) =>
+    fetchAPI<{ status: string }>(`/lists/${id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ post_id: postId }),
+    }),
+
+  removeItem: (id: string, postId: string) =>
+    fetchAPI<{ status: string }>(`/lists/${id}/items?post_id=${encodeURIComponent(postId)}`, {
+      method: "DELETE",
+    }),
+};
+
+// ---------- Reports API (Content Moderation) ----------
+
+export interface Report {
+  id: string;
+  reporter_id: string;
+  reporter_username: string;
+  post_id?: string;
+  comment_id?: string;
+  post_title?: string;
+  comment_body?: string;
+  reason: string;
+  details: string;
+  status: string;
+  created_at: string;
+}
+
+export const reportsAPI = {
+  create: (data: { post_id?: string; comment_id?: string; reason: string; details?: string }) =>
+    fetchAPI<{ id: string; status: string }>("/reports", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  list: (status?: string) =>
+    fetchAPI<Report[]>(`/reports${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+
+  update: (id: string, status: string) =>
+    fetchAPI<{ status: string }>(`/reports/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ status }),
+    }),
+};
+
+// ---------- Claps API ----------
+
+export const clapsAPI = {
+  clap: (postId: string, count: number = 1) =>
+    fetchAPI<{ status: string; user_count: number; total: number }>("/claps", {
+      method: "POST",
+      body: JSON.stringify({ post_id: postId, count }),
+    }),
+
+  unclap: (postId: string) =>
+    fetchAPI<{ status: string }>(`/claps?post_id=${encodeURIComponent(postId)}`, {
+      method: "DELETE",
+    }),
+
+  getCount: (postId: string) =>
+    fetchAPI<{ total: number; user_count: number }>(`/claps/${postId}`),
+};
+
+// ---------- Responses API ----------
+
+export const responsesAPI = {
+  list: (postId: string) =>
+    fetchAPI<Post[]>(`/responses?post_id=${encodeURIComponent(postId)}`),
+
+  create: (data: {
+    parent_post_id: string;
+    title: string;
+    content: Record<string, unknown>;
+    excerpt?: string;
+    tags?: string[];
+  }) =>
+    fetchAPI<{ id: string; slug: string }>("/responses", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { feedAPI, Post } from "@/lib/api";
 import { PostCard } from "@/components/feed/post-card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,22 +11,33 @@ import { TopicFollowButton } from "@/components/feed/topic-follow-button";
 import { Search, Flame } from "lucide-react";
 
 const TOPICS = [
+  "AI",
+  "Food",
   "Technology",
+  "Science",
+  "Animals",
   "Programming",
   "Design",
   "Writing",
-  "Science",
   "Productivity",
   "Startups",
-  "AI",
 ] as const;
 
 export default function DiscoverPage() {
+  const searchParams = useSearchParams();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+  const [selectedTopic, setSelectedTopic] = useState<string | null>(
+    searchParams.get("tag")
+  );
   const bookmarkedIds = useBookmarkedIds();
+
+  // Keep the selected topic in sync with the ?tag= query param (e.g. when a
+  // trending-topic chip links to /discover?tag=AI).
+  useEffect(() => {
+    setSelectedTopic(searchParams.get("tag"));
+  }, [searchParams]);
 
   // Load posts whenever the selected topic changes. No topic -> trending feed;
   // a topic -> the by-tag feed filtered server-side.

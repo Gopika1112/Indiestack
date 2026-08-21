@@ -10,7 +10,7 @@ import { postAPI, uploadAPI } from "@/lib/api";
 import { TagPicker } from "@/components/editor/tag-picker";
 import { useAuthStore } from "@/lib/auth-store";
 import { useToast } from "@/components/toast-provider";
-import { Loader2, ArrowLeft, X, ImagePlus, Upload } from "lucide-react";
+import { Loader2, ArrowLeft, X, ImagePlus, Upload, Eye } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 
 const TipTapEditor = dynamic(
@@ -28,7 +28,7 @@ const TipTapEditor = dynamic(
 function WritePageEditor() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const draftId = searchParams.get("draft");
+  const [draftId, setDraftId] = useState<string | null>(searchParams.get("draft"));
   const { isAuthenticated, user } = useAuthStore();
   const { toast } = useToast();
   const [title, setTitle] = useState("");
@@ -40,6 +40,7 @@ function WritePageEditor() {
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [coverUploading, setCoverUploading] = useState(false);
   const [draftLoading, setDraftLoading] = useState(!!draftId);
@@ -145,6 +146,7 @@ function WritePageEditor() {
           status: "draft",
         });
         if (response.success) {
+          setDraftId(response.data?.id ?? null);
           setSaveStatus("saved");
           toast({ title: "Draft saved", variant: "success" });
         }
@@ -234,6 +236,16 @@ function WritePageEditor() {
               </Button>
             )}
             <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowPreview(true)}
+              disabled={!title.trim()}
+              className="rounded-full"
+            >
+              <Eye className="h-4 w-4 mr-1" />
+              Preview
+            </Button>
+            <Button
               size="sm"
               className="rounded-full px-4"
               onClick={() => setShowPublishModal(true)}
@@ -316,6 +328,76 @@ function WritePageEditor() {
           />
         </div>
       </main>
+
+      {/* Preview Modal */}
+      <Dialog.Root open={showPreview} onOpenChange={setShowPreview}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <Dialog.Content className="fixed inset-0 z-50 bg-background overflow-y-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
+            <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b">
+              <div className="container mx-auto flex h-14 items-center justify-between px-4 max-w-[780px]">
+                <span className="text-sm font-medium text-muted-foreground">Preview</span>
+                <Button variant="ghost" size="sm" onClick={() => setShowPreview(false)} className="rounded-full">
+                  <X className="h-4 w-4 mr-1" /> Close
+                </Button>
+              </div>
+            </div>
+            <div className="container mx-auto px-4 py-10 max-w-[680px]">
+              {/* Title */}
+              <div className="flex items-start gap-5 mb-6">
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-3xl md:text-4xl lg:text-[42px] font-bold tracking-tight leading-tight">
+                    {title || "Untitled"}
+                  </h1>
+                </div>
+                {coverImageUrl && (
+                  <div className="relative w-24 h-24 md:w-28 md:h-28 shrink-0 rounded-lg overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={coverImageUrl}
+                      alt={title}
+                      className="absolute inset-0 h-full w-full object-cover"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Tags */}
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-8">
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Author header */}
+              <div className="flex items-center gap-3 mb-10">
+                <div className="h-11 w-11 rounded-full bg-muted flex items-center justify-center shrink-0">
+                  <span className="text-sm font-medium">{user?.display_name?.[0] || "U"}</span>
+                </div>
+                <div>
+                  <div className="font-medium">{user?.display_name || "You"}</div>
+                  <div className="text-sm text-muted-foreground">
+                    {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} ·{" "}
+                    {Math.max(1, Math.ceil((content ? content.replace(/<[^>]*>/g, "").split(/\s+/).length : 0) / 200))} min read
+                  </div>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="prose prose-lg max-w-none">
+                <div dangerouslySetInnerHTML={{ __html: renderPreviewContent(content) }} />
+              </div>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       {/* Publish Modal */}
       <Dialog.Root open={showPublishModal} onOpenChange={setShowPublishModal}>
@@ -443,4 +525,81 @@ export default function WritePage() {
       <WritePageEditor />
     </Suspense>
   );
+}
+
+// renderPreviewContent renders TipTap JSON content as HTML for the preview.
+// Mirrors the renderContent logic from the post page.
+function renderPreviewContent(content: string): string {
+  if (!content) return "<p class=\"text-muted-foreground\">Start writing to see a preview...</p>";
+  try {
+    const doc = JSON.parse(content);
+    return renderNodes(doc.content || []);
+  } catch {
+    return "<p>Unable to render preview.</p>";
+  }
+}
+
+interface TipTapNode {
+  type: string;
+  content?: TipTapNode[];
+  text?: string;
+  attrs?: Record<string, unknown>;
+  marks?: { type: string; attrs?: Record<string, unknown> }[];
+}
+
+function renderNodes(nodes: TipTapNode[]): string {
+  return nodes.map(renderNode).join("");
+}
+
+function renderNode(node: TipTapNode): string {
+  switch (node.type) {
+    case "paragraph":
+      return `<p>${renderNodes(node.content || [])}</p>`;
+    case "heading": {
+      const level = (node.attrs?.level as number) || 1;
+      return `<h${level}>${renderNodes(node.content || [])}</h${level}>`;
+    }
+    case "bulletList":
+      return `<ul>${renderNodes(node.content || [])}</ul>`;
+    case "orderedList":
+      return `<ol>${renderNodes(node.content || [])}</ol>`;
+    case "listItem":
+      return `<li>${renderNodes(node.content || [])}</li>`;
+    case "blockquote":
+      return `<blockquote>${renderNodes(node.content || [])}</blockquote>`;
+    case "codeBlock":
+      return `<pre><code>${renderNodes(node.content || [])}</code></pre>`;
+    case "image":
+      return `<img src="${(node.attrs?.src as string) || ""}" alt="${(node.attrs?.alt as string) || ""}" />`;
+    case "text": {
+      let text = node.text || "";
+      if (node.marks) {
+        node.marks.forEach((mark) => {
+          switch (mark.type) {
+            case "bold":
+              text = `<strong>${text}</strong>`;
+              break;
+            case "italic":
+              text = `<em>${text}</em>`;
+              break;
+            case "underline":
+              text = `<u>${text}</u>`;
+              break;
+            case "strike":
+              text = `<s>${text}</s>`;
+              break;
+            case "highlight":
+              text = `<mark>${text}</mark>`;
+              break;
+            case "link":
+              text = `<a href="${mark.attrs?.href || "#"}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+              break;
+          }
+        });
+      }
+      return text;
+    }
+    default:
+      return renderNodes(node.content || []);
+  }
 }

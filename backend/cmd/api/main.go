@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/indiestack/indiestack/internal/queue"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -30,8 +32,11 @@ var db *sql.DB
 var jwtSecret []byte
 var jwtRefreshSecret []byte
 var queueClient *queue.Client
+var redisClient *redis.Client
 
 // --- Rate Limiter ---
+// Uses Redis for persistent, distributed rate limiting. Falls back to in-memory
+// if Redis is unavailable (keeps the app working even if Redis is down).
 type rateLimiter struct {
 	mu       sync.Mutex
 	visitors map[string]*visitor
@@ -44,7 +49,27 @@ type visitor struct {
 
 var limiter = &rateLimiter{visitors: make(map[string]*visitor)}
 
+// allow checks if a request is allowed based on the rate limit.
+// Uses Redis for persistent rate limiting; falls back to in-memory if Redis is down.
 func (rl *rateLimiter) allow(ip string, limit int) bool {
+	// Try Redis first for persistent rate limiting.
+	if redisClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		key := fmt.Sprintf("rate_limit:%s", ip)
+		count, err := redisClient.Incr(ctx, key).Result()
+		if err == nil {
+			if count == 1 {
+				// First request in this window — set expiry to 1 minute.
+				redisClient.Expire(ctx, key, time.Minute)
+			}
+			return count <= int64(limit)
+		}
+		// Redis error — fall through to in-memory fallback.
+		log.Printf("Redis rate limit error (falling back to in-memory): %v", err)
+	}
+
+	// In-memory fallback (if Redis is unavailable).
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	v, exists := rl.visitors[ip]
@@ -424,6 +449,23 @@ func main() {
 	db.SetConnMaxLifetime(5 * time.Minute)
 	log.Println("Connected to database")
 
+	// Initialize Redis client for persistent rate limiting.
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis:6379"
+	}
+	redisClient = redis.NewClient(&redis.Options{
+		Addr: redisURL,
+	})
+	redisCtx, redisCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer redisCancel()
+	if err := redisClient.Ping(redisCtx).Err(); err != nil {
+		log.Printf("WARNING: Redis not available (%v) — using in-memory rate limiting", err)
+		redisClient = nil
+	} else {
+		log.Println("Connected to Redis")
+	}
+
 	// Initialize queue client for publishing worker events
 	queueClient = queue.NewClient()
 
@@ -454,6 +496,9 @@ func main() {
 	mux.HandleFunc("/api/v1/api-keys/", apiKeysHandler)
 	mux.HandleFunc("/api/v1/posts/mine", listMyPostsHandler)
 	mux.HandleFunc("/api/v1/upload", uploadHandler)
+
+	// Story stats endpoint
+	mux.HandleFunc("/api/v1/posts/stats/", postStatsHandler)
 
 	// SEO endpoints (RSS, sitemap, robots.txt) — routed to the backend via Caddy.
 	mux.HandleFunc("/rss", rssHandler)
@@ -1132,6 +1177,22 @@ func autoExcerpt(content map[string]interface{}) string {
 	return strings.TrimRight(cut, " ") + "..."
 }
 
+// uniqueSlugForAuthor returns a slug that is unique for the given author. If the
+// requested slug is already taken by another of the author's posts, a numeric
+// suffix is appended (e.g. "my-title-2", "my-title-3").
+func uniqueSlugForAuthor(authorID, slug string) string {
+	base := slug
+	for i := 2; ; i++ {
+		var exists bool
+		err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM posts WHERE author_id = $1 AND slug = $2)`,
+			authorID, slug).Scan(&exists)
+		if err != nil || !exists {
+			return slug
+		}
+		slug = fmt.Sprintf("%s-%d", base, i)
+	}
+}
+
 func createPost(w http.ResponseWriter, r *http.Request) {
 	userID, scopes, err := extractAuth(r)
 	if err != nil {
@@ -1167,6 +1228,9 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 	if slug == "" {
 		slug = strings.ToLower(strings.ReplaceAll(req.Title, " ", "-"))
 	}
+	// Ensure the slug is unique for this author. If a post with the same slug
+	// already exists, append a short numeric suffix (e.g. "my-title-2").
+	slug = uniqueSlugForAuthor(userID, slug)
 	status := req.Status
 	if status == "" {
 		status = "draft"
@@ -1350,8 +1414,10 @@ func trendingFeedHandler(w http.ResponseWriter, r *http.Request) {
 			 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
 			 FROM posts p JOIN users u ON p.author_id = u.id
 			 WHERE p.status = 'published' AND u.id != ALL($1::uuid[])
-			 ORDER BY (p.like_count + p.comment_count * 2 + p.repost_count * 3) DESC NULLS FIRST, p.published_at DESC NULLS LAST
-			 LIMIT 50`
+			   AND (COALESCE(p.clap_count, 0) + COALESCE(p.view_count, 0)) > 0
+			 ORDER BY (COALESCE(p.clap_count, 0) + COALESCE(p.view_count, 0)) DESC,
+			          p.published_at DESC NULLS LAST
+			 LIMIT 15`
 		rows, err := db.Query(baseQuery, mutedIDs)
 		if err != nil {
 			jsonSuccess(w, http.StatusOK, []Post{})
@@ -1366,8 +1432,10 @@ func trendingFeedHandler(w http.ResponseWriter, r *http.Request) {
 			 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
 			 FROM posts p JOIN users u ON p.author_id = u.id
 			 WHERE p.status = 'published'
-			 ORDER BY (p.like_count + p.comment_count * 2 + p.repost_count * 3) DESC NULLS FIRST, p.published_at DESC NULLS LAST
-			 LIMIT 50`)
+			   AND (COALESCE(p.clap_count, 0) + COALESCE(p.view_count, 0)) > 0
+			 ORDER BY (COALESCE(p.clap_count, 0) + COALESCE(p.view_count, 0)) DESC,
+			          p.published_at DESC NULLS LAST
+			 LIMIT 15`)
 		if err != nil {
 			jsonSuccess(w, http.StatusOK, []Post{})
 			return
@@ -1482,9 +1550,9 @@ func tagsHandler(w http.ResponseWriter, r *http.Request) {
 // TRENDING + TOPIC FOLLOW HANDLERS
 // ============================================================
 
-// trendingPostsHandler returns the most-viewed posts in the last 24 hours,
-// based on the post_views event log. Falls back to the all-time trending feed
-// when there are too few recent views (keeps the panel from going empty).
+// trendingPostsHandler returns the most-viewed + most-clapped posts, using a
+// combined score of actual views (from post_views) and claps. This gives a stable
+// trending list that works even with low recent traffic.
 func trendingPostsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
@@ -1494,12 +1562,14 @@ func trendingPostsHandler(w http.ResponseWriter, r *http.Request) {
 		SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 		 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
 		 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
-		 FROM post_views pv
-		 JOIN posts p ON p.id = pv.post_id
+		 FROM posts p
 		 JOIN users u ON p.author_id = u.id
-		 WHERE pv.viewed_at > now() - interval '24 hours' AND p.status = 'published'
-		 GROUP BY p.id, u.username, u.display_name, u.avatar_url
-		 ORDER BY COUNT(*) DESC, MAX(pv.viewed_at) DESC
+		 WHERE p.status = 'published'
+		 ORDER BY (
+		   COALESCE((SELECT COUNT(*) FROM post_views pv WHERE pv.post_id = p.id), 0)
+		   + COALESCE(p.clap_count, 0)
+		 ) DESC,
+		 p.published_at DESC NULLS LAST
 		 LIMIT 10`)
 	if err != nil {
 		log.Printf("trending posts error: %v", err)
@@ -1508,77 +1578,97 @@ func trendingPostsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	posts := scanFeedPosts(rows)
 	rows.Close()
-
-	// Fallback: if the event log has no recent views yet, order by engagement
-	// (likes + comments) then recency so the panel never renders empty.
-	if len(posts) == 0 {
-		fallback, err := db.Query(`
-			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
-			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
-			 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
-			 FROM posts p JOIN users u ON p.author_id = u.id
-			 WHERE p.status = 'published'
-			 ORDER BY (p.like_count + p.comment_count * 2 + p.repost_count * 3) DESC NULLS LAST,
-			          p.published_at DESC NULLS LAST
-			 LIMIT 10`)
-		if err == nil {
-			posts = scanFeedPosts(fallback)
-			fallback.Close()
-		}
-	}
 	jsonSuccess(w, http.StatusOK, posts)
 }
 
 // trendingTopicsHandler returns the hottest tags by recent views (last 24h),
-// falling back to tag usage count when there's little view data.
+// but always includes every published tag so the panel never appears empty.
+// Tags with recent views are ranked first (by view count), followed by the
+// remaining tags ordered by overall usage.
 func trendingTopicsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
-	}
-	rows, err := db.Query(`
-		SELECT tag, COUNT(*) AS recent_views
-		 FROM post_views pv
-		 JOIN posts p ON p.id = pv.post_id,
-		 jsonb_array_elements_text(p.tags) AS tag
-		 WHERE pv.viewed_at > now() - interval '24 hours' AND p.status = 'published'
-		 GROUP BY tag
-		 ORDER BY recent_views DESC, tag ASC
-		 LIMIT 10`)
-	if err != nil {
-		log.Printf("trending topics error: %v", err)
 	}
 	type topicCount struct {
 		Tag   string `json:"tag"`
 		Count int    `json:"count"`
 	}
 	out := []topicCount{}
-	if err == nil {
+
+	// Recent-view counts per tag (last 24h), used to rank the "hot" topics.
+	recent := map[string]int{}
+	rows, err := db.Query(`
+		SELECT tag, COUNT(*) AS recent_views
+		 FROM post_views pv
+		 JOIN posts p ON p.id = pv.post_id,
+		 jsonb_array_elements_text(p.tags) AS tag
+		 WHERE pv.viewed_at > now() - interval '24 hours' AND p.status = 'published'
+		 GROUP BY tag`)
+	if err != nil {
+		log.Printf("trending topics error: %v", err)
+	} else {
 		for rows.Next() {
-			var t topicCount
-			if err := rows.Scan(&t.Tag, &t.Count); err == nil {
-				out = append(out, t)
+			var tag string
+			var c int
+			if err := rows.Scan(&tag, &c); err == nil {
+				recent[tag] = c
 			}
 		}
 		rows.Close()
 	}
-	// Fallback: if no recent view data, surface the most-used tags overall.
-	if len(out) == 0 {
-		rows2, err2 := db.Query(`
-			SELECT value AS tag, COUNT(*) AS count
-			 FROM posts, jsonb_array_elements_text(posts.tags)
-			 WHERE posts.status = 'published'
-			 GROUP BY value ORDER BY count DESC, tag ASC LIMIT 10`)
-		if err2 == nil {
-			for rows2.Next() {
-				var t topicCount
-				if err := rows2.Scan(&t.Tag, &t.Count); err == nil {
-					out = append(out, t)
-				}
-			}
-			rows2.Close()
+
+	// Overall tag usage across all published posts.
+	rows2, err2 := db.Query(`
+		SELECT value AS tag, COUNT(*) AS count
+		 FROM posts, jsonb_array_elements_text(posts.tags)
+		 WHERE posts.status = 'published'
+		 GROUP BY value ORDER BY count DESC, tag ASC`)
+	if err2 != nil {
+		log.Printf("trending topics fallback error: %v", err2)
+		jsonSuccess(w, http.StatusOK, out)
+		return
+	}
+	defer rows2.Close()
+
+	type usage struct {
+		tag   string
+		count int
+	}
+	var all []usage
+	for rows2.Next() {
+		var u usage
+		if err := rows2.Scan(&u.tag, &u.count); err == nil {
+			all = append(all, u)
 		}
 	}
+
+	// Emit tags with recent views first (ordered by view count), then the rest.
+	seen := map[string]bool{}
+	type recentTag struct {
+		tag   string
+		count int
+	}
+	var recentList []recentTag
+	for tag, c := range recent {
+		recentList = append(recentList, recentTag{tag, c})
+	}
+	sort.Slice(recentList, func(i, j int) bool {
+		if recentList[i].count != recentList[j].count {
+			return recentList[i].count > recentList[j].count
+		}
+		return recentList[i].tag < recentList[j].tag
+	})
+	for _, rt := range recentList {
+		out = append(out, topicCount{Tag: rt.tag, Count: rt.count})
+		seen[rt.tag] = true
+	}
+	for _, u := range all {
+		if !seen[u.tag] {
+			out = append(out, topicCount{Tag: u.tag, Count: u.count})
+		}
+	}
+
 	jsonSuccess(w, http.StatusOK, out)
 }
 
@@ -1646,9 +1736,9 @@ func followedTopicsHandler(w http.ResponseWriter, r *http.Request) {
 	jsonSuccess(w, http.StatusOK, tags)
 }
 
-// followingTopicsFeedHandler returns published posts whose tags intersect the
-// user's followed topics. If the user follows nothing OR there are no matching
-// posts, it falls back to the latest posts from all topics.
+// followingTopicsFeedHandler returns a personalized "For You" feed that shows only
+// posts from topics the user follows, ranked by engagement + recency. If the user
+// follows nothing OR there are no matching posts, it falls back to the latest posts.
 func followingTopicsFeedHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
@@ -1658,6 +1748,8 @@ func followingTopicsFeedHandler(w http.ResponseWriter, r *http.Request) {
 
 	var posts []Post
 	if userID != "" {
+		// Strict filter: only posts from topics the user follows, ranked by engagement
+		// (claps + comments*2 + reposts*3) then recency.
 		rows, err := db.Query(`
 			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
 			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
@@ -1694,6 +1786,43 @@ func followingTopicsFeedHandler(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 	}
 	jsonSuccess(w, http.StatusOK, posts)
+}
+
+// postStatsHandler returns stats for a single post (views, claps, comments, reposts).
+// Used by the author to see how their story is performing.
+func postStatsHandler(w http.ResponseWriter, r *http.Request) {
+	postID := strings.TrimPrefix(r.URL.Path, "/api/v1/posts/stats/")
+	if postID == "" {
+		jsonError(w, 400, "bad_request", "post_id required")
+		return
+	}
+
+	// Verify the post exists and get the author.
+	var authorID string
+	if err := db.QueryRow("SELECT author_id FROM posts WHERE id = $1", postID).Scan(&authorID); err != nil {
+		jsonError(w, 404, "not_found", "Post not found")
+		return
+	}
+
+	// Only the author can view stats.
+	userID, err := extractUserID(r)
+	if err != nil || userID != authorID {
+		jsonError(w, 403, "forbidden", "Only the author can view stats")
+		return
+	}
+
+	var views, claps, comments, reposts int
+	_ = db.QueryRow("SELECT COUNT(*) FROM post_views WHERE post_id = $1", postID).Scan(&views)
+	_ = db.QueryRow("SELECT COALESCE(SUM(count), 0) FROM claps WHERE post_id = $1", postID).Scan(&claps)
+	_ = db.QueryRow("SELECT COUNT(*) FROM comments WHERE post_id = $1", postID).Scan(&comments)
+	_ = db.QueryRow("SELECT COUNT(*) FROM reposts WHERE post_id = $1", postID).Scan(&reposts)
+
+	jsonSuccess(w, 200, map[string]int{
+		"views":    views,
+		"claps":    claps,
+		"comments": comments,
+		"reposts":  reposts,
+	})
 }
 
 // ============================================================

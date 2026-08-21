@@ -176,12 +176,23 @@ func commentsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		// Optional auth: when signed in, flag which comments the viewer has liked.
 		viewerID, _ := extractUserID(r)
-		rows, err := db.Query(`
-			SELECT c.id, c.post_id, c.user_id, c.parent_id, c.body, u.username, c.like_count, c.created_at,
-			       EXISTS(SELECT 1 FROM comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = $2) AS liked
-			FROM comments c JOIN users u ON c.user_id = u.id
-			WHERE c.post_id = $1
-			ORDER BY c.created_at`, postID, viewerID)
+		var rows *sql.Rows
+		var err error
+		if viewerID == "" {
+			rows, err = db.Query(`
+				SELECT c.id, c.post_id, c.user_id, c.parent_id, c.body, u.username, c.like_count, c.created_at,
+				       false AS liked
+				FROM comments c JOIN users u ON c.user_id = u.id
+				WHERE c.post_id = $1
+				ORDER BY c.created_at`, postID)
+		} else {
+			rows, err = db.Query(`
+				SELECT c.id, c.post_id, c.user_id, c.parent_id, c.body, u.username, c.like_count, c.created_at,
+				       EXISTS(SELECT 1 FROM comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = $2) AS liked
+				FROM comments c JOIN users u ON c.user_id = u.id
+				WHERE c.post_id = $1
+				ORDER BY c.created_at`, postID, viewerID)
+		}
 		if err != nil {
 			jsonError(w, 500, "db_error", err.Error())
 			return
@@ -243,7 +254,22 @@ func commentsHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("comment count increment error: %v", err)
 		}
 		notifyPostAuthor(input.PostID, userID, "comment", "commented on your post")
-		jsonSuccess(w, 201, map[string]string{"id": id})
+
+		// Fetch the newly created comment with user details
+		var newComment Comment
+		var username string
+		err = db.QueryRow(`SELECT c.id, c.post_id, c.user_id, c.parent_id, c.body, c.like_count, c.created_at, u.username 
+			FROM comments c JOIN users u ON c.user_id = u.id 
+			WHERE c.id = $1`, id).Scan(&newComment.ID, &newComment.PostID, &newComment.UserID, &newComment.ParentID, &newComment.Body, &newComment.LikeCount, &newComment.CreatedAt, &username)
+		if err != nil {
+			log.Printf("Failed to fetch new comment: %v", err)
+			// Return just the ID as fallback
+			jsonSuccess(w, 201, map[string]string{"id": id})
+			return
+		}
+		newComment.Username = username
+		newComment.Liked = false
+		jsonSuccess(w, 201, newComment)
 	default:
 		jsonError(w, 405, "method_not_allowed", "Method not allowed")
 	}
@@ -778,6 +804,10 @@ func jobsHandler(w http.ResponseWriter, r *http.Request) {
 // --- Newsletter ---
 
 func newsletterHandler(w http.ResponseWriter, r *http.Request) {
+	// Support both the bare path and sub-paths (/subscribe, /count), since
+	// the frontend and docs use /api/v1/newsletter/subscribe and
+	// /api/v1/newsletter/count while the route is registered at /api/v1/newsletter.
+	sub := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/newsletter"), "/")
 	switch r.Method {
 	case http.MethodPost:
 		var input struct {
@@ -810,6 +840,7 @@ func newsletterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		jsonSuccess(w, 200, map[string]int{"subscriber_count": count})
 	default:
+		_ = sub
 		jsonError(w, 405, "method_not_allowed", "Method not allowed")
 	}
 }
@@ -879,16 +910,35 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 
 // --- Search ---
 
+// searchHandler returns Medium-style grouped search results: stories, people,
+// topics, publications, and lists. Publications and lists are not yet modeled
+// in the schema, so they are returned as empty arrays (the UI shows them as
+// "coming soon" placeholders).
 func searchHandler(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query().Get("q")
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
 		jsonError(w, 400, "missing_param", "q required")
 		return
 	}
 	query := "%" + strings.ToLower(q) + "%"
-	// Search title, excerpt, the TipTap body text, and tags (content/tags are stored
-	// as JSONB, so cast to text for a case-insensitive substring match).
-	rows, err := db.Query(`SELECT p.id, p.slug, p.title, COALESCE(p.excerpt,''), p.author_id, u.username
+
+	// --- Stories (posts) ---
+	type storyResult struct {
+		ID             string   `json:"id"`
+		Slug           string   `json:"slug"`
+		Title          string   `json:"title"`
+		Excerpt        string   `json:"excerpt"`
+		AuthorID       string   `json:"author_id"`
+		AuthorUsername string   `json:"author_username"`
+		AuthorName     string   `json:"author_name"`
+		AuthorAvatar   string   `json:"author_avatar"`
+		Tags           []string `json:"tags"`
+		PublishedAt    *time.Time `json:"published_at"`
+		LikeCount      int      `json:"like_count"`
+	}
+	stories := []storyResult{}
+	rows, err := db.Query(`SELECT p.id, p.slug, p.title, COALESCE(p.excerpt,''), p.author_id,
+			u.username, u.display_name, u.avatar_url, p.tags, p.published_at, p.like_count
 		FROM posts p JOIN users u ON p.author_id = u.id
 		WHERE p.status='published' AND (
 			LOWER(p.title) LIKE $1 OR
@@ -896,35 +946,165 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 			LOWER(p.content::text) LIKE $1 OR
 			LOWER(COALESCE(p.tags::text,'')) LIKE $1
 		)
-		ORDER BY p.published_at DESC LIMIT 20`, query)
+		ORDER BY p.published_at DESC NULLS LAST LIMIT 20`, query)
 	if err != nil {
 		jsonError(w, 500, "db_error", err.Error())
 		return
 	}
-	defer rows.Close()
-	type SearchResult struct {
-		ID       string `json:"id"`
-		Slug     string `json:"slug"`
-		Title    string `json:"title"`
-		Excerpt  string `json:"excerpt"`
-		AuthorID string `json:"author_id"`
-		Username string `json:"author_username"`
-	}
-	var results []SearchResult
 	for rows.Next() {
-		var s SearchResult
-		if err := rows.Scan(&s.ID, &s.Slug, &s.Title, &s.Excerpt, &s.AuthorID, &s.Username); err != nil {
+		var s storyResult
+		var tagsJSON []byte
+		if err := rows.Scan(&s.ID, &s.Slug, &s.Title, &s.Excerpt, &s.AuthorID,
+			&s.AuthorUsername, &s.AuthorName, &s.AuthorAvatar, &tagsJSON, &s.PublishedAt, &s.LikeCount); err != nil {
 			continue
 		}
-		results = append(results, s)
+		if len(tagsJSON) > 0 {
+			_ = json.Unmarshal(tagsJSON, &s.Tags)
+		}
+		if s.Tags == nil {
+			s.Tags = []string{}
+		}
+		stories = append(stories, s)
 	}
-	if err := rows.Err(); err != nil {
-		log.Printf("Search rows error: %v", err)
+	rows.Close()
+	if stories == nil {
+		stories = []storyResult{}
 	}
-	if results == nil {
-		results = []SearchResult{}
+
+	// --- People (users) ---
+	// Matches users by name/bio, and also surfaces writers who have published
+	// posts on the searched topic (matching tag, title, or excerpt) — like Medium.
+	type personResult struct {
+		ID            string `json:"id"`
+		Username      string `json:"username"`
+		DisplayName   string `json:"display_name"`
+		Bio           string `json:"bio"`
+		AvatarURL     string `json:"avatar_url"`
+		FollowerCount int    `json:"follower_count"`
+		IsVerified    bool   `json:"is_verified"`
 	}
-	jsonSuccess(w, 200, results)
+	people := []personResult{}
+	rows2, err2 := db.Query(`SELECT u.id, u.username, u.display_name, COALESCE(u.bio,''), COALESCE(u.avatar_url,''),
+			u.follower_count, u.is_verified
+		FROM users u
+		WHERE u.deactivated_at IS NULL AND (
+			LOWER(u.username) LIKE $1 OR
+			LOWER(u.display_name) LIKE $1 OR
+			LOWER(COALESCE(u.bio,'')) LIKE $1 OR
+			EXISTS (
+				SELECT 1 FROM posts p
+				WHERE p.author_id = u.id AND p.status = 'published' AND (
+					LOWER(p.title) LIKE $1 OR
+					LOWER(COALESCE(p.excerpt,'')) LIKE $1 OR
+					LOWER(COALESCE(p.tags::text,'')) LIKE $1
+				)
+			)
+		)
+		ORDER BY u.follower_count DESC, u.username ASC LIMIT 20`, query)
+	if err2 == nil {
+		for rows2.Next() {
+			var p personResult
+			if err := rows2.Scan(&p.ID, &p.Username, &p.DisplayName, &p.Bio, &p.AvatarURL, &p.FollowerCount, &p.IsVerified); err == nil {
+				people = append(people, p)
+			}
+		}
+		rows2.Close()
+	}
+	if people == nil {
+		people = []personResult{}
+	}
+
+	// --- Topics (tags) ---
+	type topicResult struct {
+		Tag   string `json:"tag"`
+		Count int    `json:"count"`
+	}
+	topics := []topicResult{}
+	rows3, err3 := db.Query(`SELECT value AS tag, COUNT(*) AS count
+		FROM posts, jsonb_array_elements_text(posts.tags)
+		WHERE posts.status = 'published' AND LOWER(value) LIKE $1
+		GROUP BY value ORDER BY count DESC, tag ASC LIMIT 20`, query)
+	if err3 == nil {
+		for rows3.Next() {
+			var t topicResult
+			if err := rows3.Scan(&t.Tag, &t.Count); err == nil {
+				topics = append(topics, t)
+			}
+		}
+		rows3.Close()
+	}
+	if topics == nil {
+		topics = []topicResult{}
+	}
+
+	// --- Publications ---
+	type publicationResult struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Slug        string `json:"slug"`
+		Description string `json:"description"`
+		LogoURL     string `json:"logo_url"`
+		FollowerCount int  `json:"follower_count"`
+		PostCount     int  `json:"post_count"`
+	}
+	publications := []publicationResult{}
+	rows4, err4 := db.Query(`
+		SELECT p.id, p.name, p.slug, COALESCE(p.description,''), COALESCE(p.logo_url,''),
+		       (SELECT COUNT(*) FROM publication_follows pf WHERE pf.publication_id = p.id),
+		       (SELECT COUNT(*) FROM publication_posts pp WHERE pp.publication_id = p.id)
+		FROM publications p
+		WHERE LOWER(p.name) LIKE $1 OR LOWER(COALESCE(p.description,'')) LIKE $1
+		ORDER BY p.created_at DESC LIMIT 20`, query)
+	if err4 == nil {
+		for rows4.Next() {
+			var pub publicationResult
+			if err := rows4.Scan(&pub.ID, &pub.Name, &pub.Slug, &pub.Description, &pub.LogoURL, &pub.FollowerCount, &pub.PostCount); err == nil {
+				publications = append(publications, pub)
+			}
+		}
+		rows4.Close()
+	}
+	if publications == nil {
+		publications = []publicationResult{}
+	}
+
+	// --- Lists ---
+	type listResult struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		OwnerUsername string `json:"owner_username"`
+		OwnerName   string `json:"owner_name"`
+		ItemCount   int    `json:"item_count"`
+	}
+	lists := []listResult{}
+	rows5, err5 := db.Query(`
+		SELECT l.id, l.name, COALESCE(l.description,''), u.username, u.display_name,
+		       (SELECT COUNT(*) FROM list_items li WHERE li.list_id = l.id)
+		FROM lists l
+		JOIN users u ON l.user_id = u.id
+		WHERE l.is_public = true AND (LOWER(l.name) LIKE $1 OR LOWER(COALESCE(l.description,'')) LIKE $1)
+		ORDER BY l.created_at DESC LIMIT 20`, query)
+	if err5 == nil {
+		for rows5.Next() {
+			var li listResult
+			if err := rows5.Scan(&li.ID, &li.Name, &li.Description, &li.OwnerUsername, &li.OwnerName, &li.ItemCount); err == nil {
+				lists = append(lists, li)
+			}
+		}
+		rows5.Close()
+	}
+	if lists == nil {
+		lists = []listResult{}
+	}
+
+	jsonSuccess(w, 200, map[string]interface{}{
+		"stories":      stories,
+		"people":       people,
+		"topics":       topics,
+		"publications": publications,
+		"lists":        lists,
+	})
 }
 
 // --- Earnings ---
@@ -981,7 +1161,64 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 
 // --- Reposts ---
 
+// repostStateHandler returns whether the authenticated user has reposted a given post.
+func repostStateHandler(w http.ResponseWriter, r *http.Request) {
+	userID, err := extractUserID(r)
+	if err != nil {
+		jsonError(w, 401, "unauthorized", "Not authenticated")
+		return
+	}
+	postID := r.URL.Query().Get("post_id")
+	if postID == "" {
+		jsonError(w, 400, "bad_request", "post_id required")
+		return
+	}
+	var exists bool
+	if err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM reposts WHERE user_id = $1 AND post_id = $2)", userID, postID).Scan(&exists); err != nil {
+		jsonError(w, 500, "db_error", err.Error())
+		return
+	}
+	jsonSuccess(w, 200, map[string]bool{"reposted": exists})
+}
+
 func repostsHandler(w http.ResponseWriter, r *http.Request) {
+	// GET lists the posts a user has reposted. Supports ?username= to view any
+	// public profile; otherwise falls back to the authenticated user.
+	if r.Method == http.MethodGet {
+		username := strings.TrimSpace(r.URL.Query().Get("username"))
+		var targetID string
+		if username != "" {
+			if err := db.QueryRow("SELECT id FROM users WHERE username = $1", username).Scan(&targetID); err != nil {
+				jsonError(w, 404, "not_found", "User not found")
+				return
+			}
+		} else {
+			uid, err := extractUserID(r)
+			if err != nil {
+				jsonError(w, 401, "unauthorized", "Not authenticated")
+				return
+			}
+			targetID = uid
+		}
+		rows, err := db.Query(`
+			SELECT p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+			 p.slug, p.title, p.excerpt, p.tags, p.cover_image_url, p.reading_time_minutes,
+			 p.published_at, p.view_count, p.like_count, p.is_premium, p.status, p.created_at
+			 FROM reposts r
+			 JOIN posts p ON p.id = r.post_id
+			 JOIN users u ON p.author_id = u.id
+			 WHERE r.user_id = $1 AND p.status = 'published'
+			 ORDER BY r.created_at DESC
+			 LIMIT 50`, targetID)
+		if err != nil {
+			jsonError(w, 500, "db_error", err.Error())
+			return
+		}
+		defer rows.Close()
+		jsonSuccess(w, 200, scanFeedPosts(rows))
+		return
+	}
+
 	userID, err := extractUserID(r)
 	if err != nil {
 		jsonError(w, 401, "unauthorized", "Not authenticated")
@@ -1323,16 +1560,20 @@ func highlightItemHandler(w http.ResponseWriter, r *http.Request) {
 
 func registerPenmarkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/profiles/", profilesHandler)
-	mux.HandleFunc("/api/v1/comments", commentsHandler)
+	// Register specific comment routes BEFORE the general one
+	// This ensures DELETE, PUT, and like operations work correctly
 	mux.HandleFunc("/api/v1/comments/", commentItemHandler)
+	mux.HandleFunc("/api/v1/comments", commentsHandler)
 	mux.HandleFunc("/api/v1/bookmarks", bookmarksHandler)
 	mux.HandleFunc("/api/v1/notifications", notificationsHandler)
 	mux.HandleFunc("/api/v1/follow", followHandler)
 	mux.HandleFunc("/api/v1/likes", likesHandler)
 	mux.HandleFunc("/api/v1/reposts", repostsHandler)
+	mux.HandleFunc("/api/v1/reposts/state", repostStateHandler)
 	mux.HandleFunc("/api/v1/mutes", mutesHandler)
 	mux.HandleFunc("/api/v1/jobs", jobsHandler)
 	mux.HandleFunc("/api/v1/newsletter", newsletterHandler)
+	mux.HandleFunc("/api/v1/newsletter/", newsletterHandler)
 	mux.HandleFunc("/api/v1/history", historyHandler)
 	mux.HandleFunc("/api/v1/highlights", highlightsHandler)
 	mux.HandleFunc("/api/v1/highlights/", highlightItemHandler)
@@ -1340,5 +1581,14 @@ func registerPenmarkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/earnings", earningsHandler)
 	mux.HandleFunc("/api/v1/stats", statsHandler)
 	mux.HandleFunc("/api/v1/avatars/upload", handleUploadAvatar)
+	mux.HandleFunc("/api/v1/publications", publicationsHandler)
+	mux.HandleFunc("/api/v1/publications/", publicationItemHandler)
+	mux.HandleFunc("/api/v1/lists", listsHandler)
+	mux.HandleFunc("/api/v1/lists/", listItemHandler)
+	mux.HandleFunc("/api/v1/claps", clapsHandler)
+	mux.HandleFunc("/api/v1/claps/", clapCountHandler)
+	mux.HandleFunc("/api/v1/responses", responsesHandler)
+	mux.HandleFunc("/api/v1/reports", reportsHandler)
+	mux.HandleFunc("/api/v1/reports/", reportItemHandler)
 	fmt.Println("Penmark routes registered (14 new endpoints)")
 }

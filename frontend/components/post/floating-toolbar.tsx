@@ -83,9 +83,8 @@ export function FloatingToolbar({ postId, likeCount, commentCount }: FloatingToo
           onClick={toggleBookmark}
           disabled={saving}
           title={saved ? "Remove from reading list" : "Save to reading list"}
-          className={`p-2 transition-colors rounded-full hover:bg-muted ${
-            saved ? "text-primary" : "text-muted-foreground hover:text-foreground"
-          } ${saving ? "opacity-50" : ""}`}
+          className={`p-2 transition-colors rounded-full hover:bg-muted ${saved ? "text-primary" : "text-muted-foreground hover:text-foreground"
+            } ${saving ? "opacity-50" : ""}`}
         >
           <Bookmark className={`h-5 w-5 ${saved ? "fill-current" : ""}`} />
         </button>

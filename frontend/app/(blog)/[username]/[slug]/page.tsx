@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import { PostPageClient } from "./post-page-client";
 
 // Server-side base URL for the Go API (inside Docker this is the go-api service).
-const API_URL =
-  process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://go-api:3001/api/v1";
+// API_URL env var is "http://go-api:3001" (no /api/v1), so we append it here.
+const API_BASE = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://go-api:3001";
+const API_URL = API_BASE.endsWith("/api/v1") ? API_BASE : `${API_BASE}/api/v1`;
 
 interface PostMeta {
   title: string;

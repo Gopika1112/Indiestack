@@ -8,15 +8,14 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 
 
-import { userAPI, postAPI, mutesAPI, User, Post, MutedUser, FollowListUser } from "@/lib/api";
+import { userAPI, postAPI, mutesAPI, repostsAPI, User, Post, MutedUser, FollowListUser } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PostCard } from "@/components/feed/post-card";
 import { formatDate, getInitials } from "@/lib/utils";
-import * as Dialog from "@radix-ui/react-dialog";
-import { MapPin, Link as LinkIcon, Calendar, PenLine, Ban, Loader2 } from "lucide-react";
+import { MapPin, Link as LinkIcon, Calendar, PenLine, Ban, Loader2, Repeat2 } from "lucide-react";
 
 export default function ProfilePage() {
   const params = useParams();
@@ -26,15 +25,16 @@ export default function ProfilePage() {
 
   const [profile, setProfile] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [reposts, setReposts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [mutedUsers, setMutedUsers] = useState<MutedUser[]>([]);
   // Followers / Following list modal state
-  const [listOpen, setListOpen] = useState<"followers" | "following" | null>(null);
   const [listUsers, setListUsers] = useState<FollowListUser[]>([]);
   const [listLoading, setListLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"posts" | "following" | "followers" | "reposts">("posts");
 
 
 
@@ -72,10 +72,11 @@ export default function ProfilePage() {
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
-      const [userResponse, postsResponse, mutesResponse] = await Promise.all([
+      const [userResponse, postsResponse, mutesResponse, repostsResponse] = await Promise.all([
         userAPI.getByUsername(username),
         postAPI.listByAuthor(username, { limit: 20 }),
         mutesAPI.list(),
+        repostsAPI.list(username),
       ]);
 
       if (userResponse.success && userResponse.data) {
@@ -83,6 +84,9 @@ export default function ProfilePage() {
       }
       if (postsResponse.success && postsResponse.data) {
         setPosts(postsResponse.data);
+      }
+      if (repostsResponse.success && repostsResponse.data) {
+        setReposts(repostsResponse.data);
       }
       if (mutesResponse.success && mutesResponse.data) {
         const muted = mutesResponse.data as MutedUser[];
@@ -141,7 +145,6 @@ export default function ProfilePage() {
   };
 
   const openFollowList = async (kind: "followers" | "following") => {
-    setListOpen(kind);
     setListLoading(true);
     setListUsers([]);
     try {
@@ -264,82 +267,114 @@ export default function ProfilePage() {
           </span>
         </div>
 
-        {/* Stats — Following / Followers open a list modal */}
-        <div className="flex gap-5 text-sm mb-8">
+        {/* Tabs — Posts | Following | Followers | Reposts */}
+        <div className="flex gap-0 border-b border-border mb-6">
           <button
-            onClick={() => openFollowList("following")}
-            className="hover:underline underline-offset-2"
+            onClick={() => setActiveTab("posts")}
+            className={`px-4 py-3 text-sm font-medium transition-colors relative ${
+              activeTab === "posts" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
           >
-            <strong>{profile.following_count}</strong>{" "}
-            <span className="text-muted-foreground">Following</span>
+            Posts
+            {activeTab === "posts" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-foreground" />
+            )}
           </button>
           <button
-            onClick={() => openFollowList("followers")}
-            className="hover:underline underline-offset-2"
+            onClick={() => { setActiveTab("following"); openFollowList("following"); }}
+            className={`px-4 py-3 text-sm font-medium transition-colors relative ${
+              activeTab === "following" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
           >
-            <strong>{profile.follower_count}</strong>{" "}
-            <span className="text-muted-foreground">Followers</span>
+            Following
+            {activeTab === "following" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-foreground" />
+            )}
           </button>
-          <span>
-            <strong>{posts.length}</strong>{" "}
-            <span className="text-muted-foreground">Posts</span>
-          </span>
+          <button
+            onClick={() => { setActiveTab("followers"); openFollowList("followers"); }}
+            className={`px-4 py-3 text-sm font-medium transition-colors relative ${
+              activeTab === "followers" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Followers
+            {activeTab === "followers" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-foreground" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("reposts")}
+            className={`px-4 py-3 text-sm font-medium transition-colors relative ${
+              activeTab === "reposts" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Reposts {reposts.length > 0 && `(${reposts.length})`}
+            {activeTab === "reposts" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-foreground" />
+            )}
+          </button>
         </div>
 
-        {/* Posts */}
-        {posts.length > 0 ? (
-          <div>
-            {posts.map((post) => (
-              <PostCard key={post.id} post={post} />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-16">
-            <PenLine className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-muted-foreground mb-4">No stories yet.</p>
-            {isOwnProfile && (
-              <Link href="/write">
-                <Button variant="outline" className="rounded-full">
-                  Write your first story
-                </Button>
-              </Link>
-            )}
-          </div>
+        {/* Posts tab */}
+        {activeTab === "posts" && (
+          posts.length > 0 ? (
+            <div>
+              {posts.map((post) => (
+                <PostCard key={post.id} post={post} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-16">
+              <PenLine className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-muted-foreground mb-4">No stories yet.</p>
+              {isOwnProfile && (
+                <Link href="/write">
+                  <Button variant="outline" className="rounded-full">
+                    Write your first story
+                  </Button>
+                </Link>
+              )}
+            </div>
+          )
         )}
-      </main>
 
-      {/* Followers / Following list modal */}
-      <Dialog.Root open={listOpen !== null} onOpenChange={(open) => !open && setListOpen(null)}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md bg-background rounded-xl border shadow-2xl p-6 max-h-[70vh] overflow-y-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
-            <Dialog.Title className="text-lg font-semibold mb-4 capitalize">
-              {listOpen === "followers" ? "Followers" : "Following"}
-            </Dialog.Title>
+        {/* Reposts tab */}
+        {activeTab === "reposts" && (
+          reposts.length > 0 ? (
+            <div>
+              {reposts.map((post) => (
+                <PostCard key={post.id} post={post} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-16">
+              <Repeat2 className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-muted-foreground">No reposts yet.</p>
+            </div>
+          )
+        )}
+
+        {/* Following tab */}
+        {activeTab === "following" && (
+          <div>
             {listLoading ? (
               <div className="flex items-center gap-2 text-muted-foreground py-6 justify-center">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading...
               </div>
             ) : listUsers.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">
-                {listOpen === "followers" ? "No followers yet." : "Not following anyone yet."}
-              </p>
+              <p className="text-sm text-muted-foreground py-6 text-center">Not following anyone yet.</p>
             ) : (
               <div className="space-y-4">
                 {listUsers.map((u) => (
                   <div key={u.id} className="flex items-center gap-3">
-                    <Link href={`/@${u.username}`} onClick={() => setListOpen(null)}>
+                    <Link href={`/@${u.username}`}>
                       <Avatar className="h-10 w-10">
                         <AvatarImage src={u.avatar_url} alt={u.display_name} />
                         <AvatarFallback>{getInitials(u.display_name)}</AvatarFallback>
                       </Avatar>
                     </Link>
                     <div className="min-w-0">
-                      <Link
-                        href={`/@${u.username}`}
-                        onClick={() => setListOpen(null)}
-                        className="font-medium hover:underline block truncate"
-                      >
+                      <Link href={`/@${u.username}`} className="font-medium hover:underline block truncate">
                         {u.display_name}
                       </Link>
                       <p className="text-sm text-muted-foreground truncate">@{u.username}</p>
@@ -348,9 +383,41 @@ export default function ProfilePage() {
                 ))}
               </div>
             )}
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+          </div>
+        )}
+
+        {/* Followers tab */}
+        {activeTab === "followers" && (
+          <div>
+            {listLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground py-6 justify-center">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+              </div>
+            ) : listUsers.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">No followers yet.</p>
+            ) : (
+              <div className="space-y-4">
+                {listUsers.map((u) => (
+                  <div key={u.id} className="flex items-center gap-3">
+                    <Link href={`/@${u.username}`}>
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage src={u.avatar_url} alt={u.display_name} />
+                        <AvatarFallback>{getInitials(u.display_name)}</AvatarFallback>
+                      </Avatar>
+                    </Link>
+                    <div className="min-w-0">
+                      <Link href={`/@${u.username}`} className="font-medium hover:underline block truncate">
+                        {u.display_name}
+                      </Link>
+                      <p className="text-sm text-muted-foreground truncate">@{u.username}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </main>
     </div>
   );
 }

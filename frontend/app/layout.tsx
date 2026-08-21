@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { MainWrapper } from "@/components/main-wrapper";
 import { AppRails } from "@/components/app-rails";
 
@@ -44,7 +45,10 @@ export default function RootLayout({
         <Providers>
           <div className="flex min-h-screen">
             <Sidebar />
-            <MainWrapper>{children}</MainWrapper>
+            <div className="flex-1 flex flex-col min-w-0">
+              <TopBar />
+              <MainWrapper>{children}</MainWrapper>
+            </div>
             <AppRails />
           </div>
         </Providers>

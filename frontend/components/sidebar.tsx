@@ -2,56 +2,132 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useAuthStore } from "@/lib/auth-store";
 import { useSidebarStore } from "@/lib/sidebar-store";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useAuthStore } from "@/lib/auth-store";
+import { notificationsAPI } from "@/lib/api";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  PenLine,
   Home,
   Compass,
   Bookmark,
   Clock,
-  Bell,
   Search,
-  Settings,
-  LogOut,
-  LogIn,
-  User,
   FileText,
-  Key,
   Menu,
   X,
   PanelLeftClose,
   PanelLeftOpen,
   Sun,
   Moon,
+  BookOpen,
+  List,
+  Bell,
+  Flag,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
-import { getInitials } from "@/lib/utils";
 
-const NAV_ITEMS = [
-  { href: "/feed", label: "Home", icon: Home },
-  { href: "/discover", label: "Explore", icon: Compass },
-  { href: "/search", label: "Search", icon: Search },
-  { href: "/bookmarks", label: "Bookmarks", icon: Bookmark },
-  { href: "/history", label: "History", icon: Clock },
-  { href: "/dashboard/drafts", label: "Drafts", icon: FileText },
+const NAV_SECTIONS = [
+  {
+    label: "Browse",
+    items: [
+      { href: "/feed", label: "Home", icon: Home },
+      { href: "/discover", label: "Explore", icon: Compass },
+      { href: "/search", label: "Search", icon: Search },
+    ],
+  },
+  {
+    label: "Communities",
+    items: [
+      { href: "/publications", label: "Publications", icon: BookOpen },
+      { href: "/lists", label: "Lists", icon: List },
+    ],
+  },
+  {
+    label: "Library",
+    items: [
+      { href: "/bookmarks", label: "Bookmarks", icon: Bookmark },
+      { href: "/history", label: "History", icon: Clock },
+      { href: "/dashboard/drafts", label: "Drafts", icon: FileText },
+    ],
+  },
+  {
+    label: "Account",
+    items: [
+      { href: "/notifications", label: "Notifications", icon: Bell },
+      { href: "/moderation", label: "Moderation", icon: Flag },
+    ],
+  },
 ];
 
+// NavLink renders a single sidebar link with consistent styling.
+function NavLink({
+  item,
+  collapsed,
+  isActive,
+  onNavigate,
+  badge,
+}: {
+  item: { href: string; label: string; icon: React.ComponentType<any> };
+  collapsed: boolean;
+  isActive: (href: string) => boolean;
+  onNavigate: () => void;
+  badge?: number;
+}) {
+  const active = isActive(item.href);
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      title={collapsed ? item.label : undefined}
+      className={`
+        group flex items-center gap-4 px-3 py-2.5 rounded-md text-[15px] whitespace-nowrap
+        transition-colors
+        ${collapsed ? "lg:justify-center lg:px-0" : ""}
+        ${active ? "text-foreground font-medium bg-muted/50" : "text-muted-foreground hover:text-foreground hover:bg-muted/30"}
+      `}
+    >
+      <span className="relative shrink-0">
+        <item.icon
+          className={`h-[22px] w-[22px] transition-colors ${
+            active ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
+          }`}
+          strokeWidth={active ? 2.2 : 1.8}
+        />
+        {badge !== undefined && badge > 0 && (
+          <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
+      </span>
+      <span className={collapsed ? "lg:hidden" : ""}>{item.label}</span>
+    </Link>
+  );
+}
+
 export function Sidebar() {
-  const { user, isAuthenticated, logout } = useAuthStore();
   const { collapsed, toggle } = useSidebarStore();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { theme, setTheme } = useTheme();
+  const { isAuthenticated } = useAuthStore();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Poll unread notification count every 30s and on mount.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const load = () => {
+      notificationsAPI
+        .list()
+        .then((res) => {
+          const unread = (res.data || []).filter((n) => !n.read).length;
+          setUnreadCount(unread);
+        })
+        .catch(() => {});
+    };
+    load();
+    const interval = setInterval(load, 30000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated]);
 
   const isActive = (href: string) => {
     if (href === "/feed") return pathname === "/feed" || pathname === "/";
@@ -90,13 +166,13 @@ export function Sidebar() {
       >
         {/* Logo + collapse toggle */}
         <div className={`h-16 flex items-center shrink-0 ${collapsed ? "lg:justify-center lg:px-0" : "justify-between px-6"}`}>
-          <Link href="/" className="flex items-center gap-2.5 min-w-0" onClick={() => setMobileOpen(false)}>
-            <div className="h-8 w-8 rounded-full bg-foreground flex items-center justify-center shrink-0">
-              <span className="text-background font-bold text-sm">I</span>
+          <Link href="/feed" className="flex items-center gap-2.5 min-w-0" onClick={() => setMobileOpen(false)}>
+            <div className="h-9 w-9 rounded-full bg-foreground flex items-center justify-center shrink-0">
+              <span className="text-background font-bold text-base">I</span>
             </div>
-            {!collapsed && (
-              <span className="text-xl font-bold tracking-tight whitespace-nowrap">IndieStack</span>
-            )}
+            <span className={`text-xl font-bold tracking-tight whitespace-nowrap ${collapsed ? "hidden" : ""}`}>
+              IndieStack
+            </span>
           </Link>
           {!collapsed && (
             <button
@@ -109,9 +185,9 @@ export function Sidebar() {
           )}
         </div>
 
-        {/* Expand button when collapsed (desktop) */}
+        {/* Expand button when collapsed (desktop) — centered below logo */}
         {collapsed && (
-          <div className="hidden lg:flex justify-center pt-2 shrink-0">
+          <div className="hidden lg:flex justify-center pt-1 shrink-0">
             <button
               onClick={toggle}
               className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
@@ -122,84 +198,41 @@ export function Sidebar() {
           </div>
         )}
 
-        {/* Nav links */}
-        <nav className={`flex-1 pt-6 space-y-1 overflow-y-auto overflow-x-hidden ${collapsed ? "lg:px-3" : "px-4"}`}>
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setMobileOpen(false)}
-              title={collapsed ? item.label : undefined}
-              className={`
-                group flex items-center gap-4 px-3 py-2.5 rounded-md text-[15px] whitespace-nowrap
-                transition-colors
-                ${collapsed ? "lg:justify-center lg:px-0" : ""}
-                ${isActive(item.href)
-                  ? "text-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground"
-                }
-              `}
-            >
-              <item.icon
-                className={`h-[22px] w-[22px] shrink-0 transition-colors ${
-                  isActive(item.href) ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
-                }`}
-                strokeWidth={isActive(item.href) ? 2.2 : 1.8}
-              />
-              <span className={collapsed ? "lg:hidden" : ""}>{item.label}</span>
-            </Link>
+        {/* Nav links — grouped into labeled sections */}
+        <nav className={`flex-1 pt-4 space-y-5 overflow-y-auto overflow-x-hidden ${collapsed ? "lg:px-3" : "px-4"}`}>
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.label}>
+              {!collapsed && (
+                <p className="px-3 mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  {section.label}
+                </p>
+              )}
+              <div className="space-y-0.5">
+                {section.items.map((item) => (
+                  <NavLink key={item.href} item={item} collapsed={collapsed} isActive={isActive} onNavigate={() => setMobileOpen(false)} />
+                ))}
+              </div>
+            </div>
           ))}
 
-          {/* Notifications - only for authenticated users */}
+          {/* Notifications — auth only, in Library section */}
           {isAuthenticated && (
-            <Link
-              href="/notifications"
-              onClick={() => setMobileOpen(false)}
-              title={collapsed ? "Notifications" : undefined}
-              className={`
-                group flex items-center gap-4 px-3 py-2.5 rounded-md text-[15px] whitespace-nowrap
-                transition-colors
-                ${collapsed ? "lg:justify-center lg:px-0" : ""}
-                ${isActive("/notifications")
-                  ? "text-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground"
-                }
-              `}
-            >
-              <Bell
-                className={`h-[22px] w-[22px] shrink-0 transition-colors ${
-                  isActive("/notifications") ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
-                }`}
-                strokeWidth={isActive("/notifications") ? 2.2 : 1.8}
-              />
-              <span className={collapsed ? "lg:hidden" : ""}>Notifications</span>
-            </Link>
-          )}
-
-          {/* Write link - Medium style: part of nav, not a button */}
-          {isAuthenticated && (
-            <Link
-              href="/write"
-              onClick={() => setMobileOpen(false)}
-              title={collapsed ? "Write" : undefined}
-              className={`
-                group flex items-center gap-4 px-3 py-2.5 rounded-md text-[15px] whitespace-nowrap
-                transition-colors
-                ${collapsed ? "lg:justify-center lg:px-0" : ""}
-                ${isActive("/write")
-                  ? "text-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground"
-                }
-              `}
-            >
-              <PenLine
-                className={`h-[22px] w-[22px] shrink-0 transition-colors ${
-                  isActive("/write") ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
-                }`}
-                strokeWidth={isActive("/write") ? 2.2 : 1.8}
-              />
-              <span className={collapsed ? "lg:hidden" : ""}>Write</span>
-            </Link>
+            <div>
+              {!collapsed && (
+                <p className="px-3 mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  Account
+                </p>
+              )}
+              <div className="space-y-0.5">
+                <NavLink
+                  item={{ href: "/notifications", label: "Notifications", icon: Bell }}
+                  collapsed={collapsed}
+                  isActive={isActive}
+                  onNavigate={() => setMobileOpen(false)}
+                  badge={unreadCount}
+                />
+              </div>
+            </div>
           )}
         </nav>
 
@@ -218,98 +251,6 @@ export function Sidebar() {
             </span>
           </button>
         </div>
-
-        {/* Bottom section - only shown for authenticated users */}
-        {isAuthenticated && (
-          <div className={`border-t border-border/60 py-4 shrink-0 ${collapsed ? "lg:px-0 lg:flex lg:justify-center px-4" : "px-4"}`}>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className={`flex items-center gap-3 rounded-md hover:bg-muted/40 transition-colors ${
-                    collapsed ? "lg:justify-center lg:p-1.5 lg:w-auto w-full px-3 py-2.5" : "w-full px-3 py-2.5"
-                  }`}
-                  title={collapsed ? user?.display_name : undefined}
-                >
-                  <Avatar className="h-9 w-9 shrink-0">
-                    <AvatarImage src={user?.avatar_url} alt={user?.display_name} />
-                    <AvatarFallback className="text-xs">{getInitials(user?.display_name || "U")}</AvatarFallback>
-                  </Avatar>
-                  <div className={`text-left min-w-0 flex-1 ${collapsed ? "lg:hidden" : ""}`}>
-                    <p className="text-sm font-medium truncate">{user?.display_name}</p>
-                    <p className="text-xs text-muted-foreground truncate">@{user?.username}</p>
-                  </div>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="right" className="w-56">
-                <div className="px-3 py-2">
-                  <p className="text-sm font-medium">{user?.display_name}</p>
-                  <p className="text-xs text-muted-foreground">@{user?.username}</p>
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href={`/@${user?.username}`} className="cursor-pointer">
-                    <User className="mr-2 h-4 w-4" />
-                    Profile
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard/drafts" className="cursor-pointer">
-                    <FileText className="mr-2 h-4 w-4" />
-                    Drafts
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/settings/api-keys" className="cursor-pointer">
-                    <Key className="mr-2 h-4 w-4" />
-                    API Keys
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/settings" className="cursor-pointer">
-                    <Settings className="mr-2 h-4 w-4" />
-                    Settings
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        )}
-
-        {/* Bottom section - only shown for unauthenticated users */}
-        {!isAuthenticated && (
-          <div className={`border-t border-border/60 py-4 shrink-0 ${collapsed ? "lg:px-0 lg:flex lg:flex-col lg:items-center lg:gap-2 px-4" : "px-4 space-y-2"}`}>
-            <Link
-              href="/login"
-              onClick={() => setMobileOpen(false)}
-              title={collapsed ? "Sign in" : undefined}
-              className={`flex items-center gap-3 rounded-md border border-border text-[15px] font-medium transition-colors hover:bg-muted/40 ${
-                collapsed ? "lg:justify-center lg:p-2.5 lg:w-auto w-full px-3 py-2.5 justify-center" : "w-full px-3 py-2.5 justify-center"
-              }`}
-            >
-              <LogIn className="h-[20px] w-[20px] shrink-0" />
-              <span className={collapsed ? "lg:hidden" : ""}>Sign in</span>
-            </Link>
-            <Link
-              href="/register"
-              onClick={() => setMobileOpen(false)}
-              title={collapsed ? "Get started" : undefined}
-              className={`flex items-center gap-3 rounded-full bg-foreground text-background text-[15px] font-medium transition-colors hover:opacity-90 ${
-                collapsed ? "lg:justify-center lg:p-2.5 lg:w-auto lg:rounded-md w-full px-3 py-2.5 justify-center" : "w-full px-3 py-2.5 justify-center"
-              }`}
-            >
-              <PenLine className="h-[20px] w-[20px] shrink-0" />
-              <span className={collapsed ? "lg:hidden" : ""}>Get started</span>
-            </Link>
-          </div>
-        )}
       </aside>
     </>
   );

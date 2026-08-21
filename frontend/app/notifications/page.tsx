@@ -7,7 +7,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatRelativeDate } from "@/lib/utils";
-import { Heart, MessageCircle, Repeat2, UserPlus, AtSign, Bell, Loader2 } from "lucide-react";
+import { Heart, MessageCircle, Repeat2, UserPlus, AtSign, Bell, Loader2, Hand, FileText, BookOpen } from "lucide-react";
 
 const TYPE_ICON: Record<string, React.ReactNode> = {
   like: <Heart className="h-4 w-4 text-red-500" />,
@@ -15,6 +15,9 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   repost: <Repeat2 className="h-4 w-4 text-green-600" />,
   follow: <UserPlus className="h-4 w-4 text-purple-500" />,
   mention: <AtSign className="h-4 w-4 text-amber-500" />,
+  clap: <Hand className="h-4 w-4 text-amber-500" />,
+  response: <FileText className="h-4 w-4 text-blue-500" />,
+  publication: <BookOpen className="h-4 w-4 text-indigo-500" />,
 };
 
 export default function NotificationsPage() {

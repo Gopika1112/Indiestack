@@ -21,6 +21,19 @@ services:
     networks:
       - indiestack-network
 
+  # Cloudflare Tunnel
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: indiestack-cloudflared
+    restart: unless-stopped
+    command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - caddy
+    networks:
+      - indiestack-network
+
   # Frontend - Next.js
   nextjs:
     build:
@@ -30,8 +43,8 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8080/api/v1}
-      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:8080}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://tech.namahos.com/api/v1}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-https://tech.namahos.com}
       - API_URL=${API_URL:-http://go-api:3001}
     depends_on:
       - go-api
@@ -66,7 +79,7 @@ services:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-local-dev-meili-master-key}
       - JWT_SECRET=${JWT_SECRET:-dev-only-jwt-secret-min-32-bytes-local}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-dev-only-refresh-secret-local}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://tech.namahos.com}
       - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
       - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
       - SMTP_HOST=${SMTP_HOST}
